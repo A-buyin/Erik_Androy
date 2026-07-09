@@ -59,16 +59,17 @@ Los comandos toleran acentos, mayúsculas y errores típicos de la voz.
 ## 🚀 Instalación en Android (Termux)
 
 ```bash
-# 1. Paquetes base
+# 1. Paquetes base (incluye audio: ffmpeg para convertir, flac para Google STT)
 pkg update && pkg upgrade
-pkg install git python termux-api
+pkg install git python termux-api ffmpeg flac
 
 # 2. Clonar el repositorio
 git clone https://github.com/A-Buyin/Erik_Androy.git
 cd Erik_Androy
 
 # 3. Dependencias de Python
-pip install faster-whisper SpeechRecognition joblib requests scikit-learn
+pip install SpeechRecognition joblib requests
+#   Opcionales (pesadas en Termux): faster-whisper scikit-learn
 
 # 4. Ejecutar (modo voz)
 python Erik.py
@@ -111,5 +112,7 @@ logo/                   # Recursos gráficos (logo de la app)
 
 ## 📝 Notas
 
+- **Micrófono en Android:** dentro de Termux, PyAudio no funciona, así que Errik graba con `termux-microphone-record` (requiere la app **Termux:API**), convierte el audio a WAV con `ffmpeg` y lo transcribe. En Windows/Linux se usa el micrófono normal vía PyAudio. La detección es automática (`Erik.py`).
+- Sin Whisper instalado (lo normal en Termux), la transcripción usa **Google STT**, que necesita internet y el paquete `flac`.
 - Los modelos en `Modelos_IDS/` son **placeholders**: la app carga el modelo y confirma que está listo, pero la inferencia con datos reales está pendiente de conectar (ver comentarios en `procesar()`).
 - Los modelos pesados (Whisper, etc.) se descargan/generan en el dispositivo y **no** se versionan en el repositorio (ver `.gitignore`).

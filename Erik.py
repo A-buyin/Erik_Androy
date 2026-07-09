@@ -14,6 +14,8 @@ warnings.filterwarnings("ignore", category=UserWarning)
 import subprocess
 import json
 import re
+import time
+import shutil
 import unicodedata
 import tempfile
 import speech_recognition as sr
@@ -230,7 +232,92 @@ def transcribir_audio(audio_data):
         return ""
 
 
+def _termux_microfono_disponible():
+    """True si estamos en Android/Termux con la herramienta de grabación."""
+    return shutil.which("termux-microphone-record") is not None
+
+
+def grabar_audio_termux(segundos=6):
+    """Graba audio en Android con termux-microphone-record y devuelve la ruta
+    a un WAV 16 kHz mono listo para transcribir. PyAudio/sr.Microphone no
+    funciona dentro de Termux, por eso en el teléfono se usa esta vía.
+
+    Requiere la app Termux:API y el paquete ffmpeg. Devuelve None si falla.
+    """
+    m4a_path = None
+    wav_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
+            m4a_path = tmp.name
+
+        # Inicia la grabación; con -l se detiene sola tras 'segundos'.
+        subprocess.run(
+            ["termux-microphone-record", "-f", m4a_path, "-l", str(segundos)],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        # Espera a que termine y cierra la grabación por si sigue activa.
+        time.sleep(segundos + 0.3)
+        subprocess.run(
+            ["termux-microphone-record", "-q"],
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+        # Convierte a WAV 16 kHz mono (formato que aceptan Whisper y Google STT).
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            wav_path = tmp.name
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", m4a_path, "-ar", "16000", "-ac", "1", wav_path],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return wav_path
+    except Exception:
+        if wav_path and os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except Exception:
+                pass
+        return None
+    finally:
+        if m4a_path and os.path.exists(m4a_path):
+            try:
+                os.remove(m4a_path)
+            except Exception:
+                pass
+
+
+def _audio_desde_wav(wav_path):
+    """Carga un WAV como AudioData de SpeechRecognition para reutilizar el
+    mismo pipeline de transcripción (Whisper local o Google STT)."""
+    reconocedor = sr.Recognizer()
+    with sr.AudioFile(wav_path) as source:
+        return reconocedor.record(source)
+
+
 def escuchar_comando():
+    # En Android (Termux) el micrófono se captura con termux-microphone-record;
+    # en escritorio (Windows/Linux) se usa PyAudio vía sr.Microphone.
+    if _termux_microfono_disponible():
+        print("Errik está escuchando...")
+        wav_path = grabar_audio_termux(segundos=6)
+        if not wav_path:
+            return ""
+        try:
+            audio = _audio_desde_wav(wav_path)
+        except Exception:
+            return ""
+        finally:
+            if os.path.exists(wav_path):
+                try:
+                    os.remove(wav_path)
+                except Exception:
+                    pass
+        comando = transcribir_audio(audio)
+        if comando:
+            print(f"Dijiste: {comando}")
+            return comando.lower()
+        return ""
+
+    # Escritorio: micrófono con PyAudio.
     reconocedor = sr.Recognizer()
     try:
         with sr.Microphone() as source:
