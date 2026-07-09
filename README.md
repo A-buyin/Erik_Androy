@@ -103,7 +103,8 @@ Modelos_IDS/            # Modelos de ML (placeholders)
   ├── deep_model_1.h5
   └── deep_model_2.pt
 crear_modelos_placeholder.py   # Genera modelos de ejemplo
-logo/                   # Recursos gráficos
+logo/                   # Recursos gráficos (logo de la app)
+  └── Gemini_Generated_Image_wzw7aawzw7aawzw7.png
 ```
 
 ---

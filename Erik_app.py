@@ -47,7 +47,7 @@ def _get_whisper_model():
 # Configuración base
 # =========================
 BASE_DIR = Path(__file__).resolve().parent
-LOGO_PATH = BASE_DIR / "logo" / "errik_logo_transparente.png"
+LOGO_PATH = BASE_DIR / "logo" / "Gemini_Generated_Image_wzw7aawzw7aawzw7.png"
 
 # IDS
 modelo = None
@@ -413,6 +413,12 @@ class ErrikApp:
         if LOGO_PATH.exists():
             try:
                 self.logo_img = tk.PhotoImage(file=str(LOGO_PATH))
+                # La imagen original es grande (~1408x768); la reducimos para
+                # que quepa como logo de cabecera sin deformar la ventana.
+                alto = self.logo_img.height()
+                if alto > 120:
+                    factor = max(1, round(alto / 96))
+                    self.logo_img = self.logo_img.subsample(factor, factor)
                 self.logo_label.configure(image=self.logo_img)
                 return
             except Exception:
