@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Errik</string>
+    <string name="action_settings">Ajustes</string>
+    <string name="first_fragment_label">Errik</string>
+    <string name="second_fragment_label">Ayuda</string>
+    <string name="next">Siguiente</string>
+    <string name="previous">Anterior</string>
+
+    <string name="hint_command">Ej: llama a mamá  /  último mensaje  /  ayuda</string>
+    <string name="send">Enviar</string>
+    <string name="voice">🎤 Hablar</string>
+    <string name="voice_prompt">Di un comando…</string>
+    <string name="errik_ready">Errik activado. ¿Qué necesitas?</string>
+    <string name="help_text">Comandos (toleran acentos y errores de voz):\n  llama a [nombre o número]  — también: marca, telefonea, con o sin \"a\"/\"al\"\n  último mensaje  — también: último sms\n  ayuda  —  muestra esta lista\n  salir  —  cierra Errik</string>
+</resources>
