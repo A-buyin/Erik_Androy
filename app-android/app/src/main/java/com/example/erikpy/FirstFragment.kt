@@ -123,7 +123,7 @@ class FirstFragment : Fragment() {
 
         tts = TextToSpeech(requireContext()) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                tts?.language = Locale("es", "ES")
+                tts?.language = Locale.forLanguageTag("es-ES")
             }
         }
 
