@@ -2,4 +2,41 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Marca Errik: índigo profesional + acento cian -->
+    <color name="brand_primary">#4F46E5</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+    <color name="brand_primary_container">#E0E7FF</color>
+    <color name="brand_on_primary_container">#1E1B4B</color>
+
+    <color name="brand_secondary">#0891B2</color>
+    <color name="brand_on_secondary">#FFFFFF</color>
+    <color name="brand_secondary_container">#CFFAFE</color>
+    <color name="brand_on_secondary_container">#083344</color>
+
+    <!-- Superficies claras -->
+    <color name="light_background">#F5F7FB</color>
+    <color name="light_surface">#FFFFFF</color>
+    <color name="light_on_surface">#0F172A</color>
+    <color name="light_surface_variant">#EEF2F8</color>
+    <color name="light_on_surface_variant">#475569</color>
+    <color name="light_outline">#CBD5E1</color>
+
+    <!-- Superficies oscuras -->
+    <color name="dark_primary">#A5B4FC</color>
+    <color name="dark_on_primary">#1E1B4B</color>
+    <color name="dark_primary_container">#3730A3</color>
+    <color name="dark_on_primary_container">#E0E7FF</color>
+
+    <color name="dark_secondary">#67E8F9</color>
+    <color name="dark_on_secondary">#083344</color>
+    <color name="dark_secondary_container">#155E75</color>
+    <color name="dark_on_secondary_container">#CFFAFE</color>
+
+    <color name="dark_background">#0B1120</color>
+    <color name="dark_surface">#131C2E</color>
+    <color name="dark_on_surface">#E2E8F0</color>
+    <color name="dark_surface_variant">#1E293B</color>
+    <color name="dark_on_surface_variant">#94A3B8</color>
+    <color name="dark_outline">#334155</color>
 </resources>

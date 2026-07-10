@@ -8,8 +8,12 @@
 
     <string name="hint_command">Ej: llama a mamá  /  último mensaje  /  ayuda</string>
     <string name="send">Enviar</string>
-    <string name="voice">🎤 Hablar</string>
+    <string name="voice">Hablar</string>
     <string name="voice_prompt">Di un comando…</string>
     <string name="errik_ready">Errik activado. ¿Qué necesitas?</string>
+    <string name="label_response">Respuesta</string>
+    <string name="show_commands">Ver comandos</string>
+    <string name="hide_commands">Ocultar comandos</string>
+    <string name="commands_title">Comandos disponibles</string>
     <string name="help_text">Comandos (toleran acentos y errores de voz):\n  llama a [nombre o número]  — también: marca, telefonea, con o sin \"a\"/\"al\"\n  último mensaje  — también: último sms\n  ayuda  —  muestra esta lista\n  salir  —  cierra Errik</string>
 </resources>

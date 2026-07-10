@@ -142,6 +142,18 @@ class FirstFragment : Fragment() {
         binding.buttonVoice.setOnClickListener {
             startVoiceInput()
         }
+
+        // Mostrar / ocultar la lista de comandos (oculta por defecto).
+        binding.buttonToggleHelp.setOnClickListener {
+            val visible = binding.cardHelp.visibility == View.VISIBLE
+            binding.cardHelp.visibility = if (visible) View.GONE else View.VISIBLE
+            binding.buttonToggleHelp.setText(
+                if (visible) R.string.show_commands else R.string.hide_commands
+            )
+            binding.buttonToggleHelp.setIconResource(
+                if (visible) R.drawable.ic_expand_more else R.drawable.ic_expand_less
+            )
+        }
     }
 
     private fun process(command: String) {
