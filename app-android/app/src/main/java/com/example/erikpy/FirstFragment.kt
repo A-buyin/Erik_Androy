@@ -180,10 +180,10 @@ class FirstFragment : Fragment() {
             if (target.matches(Regex("^[+0-9 \\-]+$"))) {
                 tryCall(target.replace(" ", ""))
             } else {
-                val number = lookupContact(target)
-                if (number != null) {
-                    respond("Marcando a $target ($number)")
-                    tryCall(number)
+                val contacto = lookupContact(target)
+                if (contacto != null) {
+                    respond("Llamando a ${contacto.nombre}")
+                    tryCall(contacto.numero)
                 } else {
                     respond("No encontré a $target en contactos.")
                 }
@@ -213,26 +213,93 @@ class FirstFragment : Fragment() {
         }
     }
 
-    private fun lookupContact(name: String): String? {
+    /** Contacto encontrado en la agenda: nombre real + número marcable. */
+    private data class Contacto(val nombre: String, val numero: String)
+
+    /**
+     * Busca en la agenda el contacto cuyo nombre más se parece a lo que dijo el
+     * usuario, tolerando acentos y errores de transcripción de voz (igual que la
+     * versión Python). Recorre TODOS los contactos y devuelve el mejor por
+     * puntuación de similitud, no la primera coincidencia. null si no hay ninguno
+     * lo bastante parecido o si falta el permiso de contactos.
+     */
+    private fun lookupContact(name: String, umbral: Double = 0.62): Contacto? {
         if (ContextCompat.checkSelfPermission(
                 requireContext(), Manifest.permission.READ_CONTACTS
             ) != PackageManager.PERMISSION_GRANTED
         ) return null
+
+        val obj = normalizar(name)
+        if (obj.isEmpty()) return null
 
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
         )
-        val selection = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
-        val args = arrayOf("%$name%")
 
-        requireContext().contentResolver.query(uri, projection, selection, args, null)?.use { c ->
-            if (c.moveToFirst()) {
-                return c.getString(1)
+        var mejor: Contacto? = null
+        var mejorScore = 0.0
+        requireContext().contentResolver.query(uri, projection, null, null, null)?.use { c ->
+            val idxNombre = 0
+            val idxNumero = 1
+            while (c.moveToNext()) {
+                val nombre = c.getString(idxNombre) ?: continue
+                val numero = c.getString(idxNumero) ?: continue
+                val nombreNorm = normalizar(nombre)
+                if (nombreNorm.isEmpty()) continue
+
+                // Similitud del nombre completo.
+                var score = ratio(obj, nombreNorm)
+
+                // Coincidencia con cada palabra suelta (nombre de pila o apellido).
+                for (parte in nombreNorm.split(" ")) {
+                    if (parte == obj) {
+                        score = maxOf(score, 0.98)
+                    } else {
+                        score = maxOf(score, ratio(obj, parte) * 0.85)
+                    }
+                }
+
+                // El objetivo aparece dentro del nombre (o al revés).
+                if (nombreNorm.contains(obj) || obj.contains(nombreNorm)) {
+                    score = maxOf(score, 0.9)
+                }
+
+                if (score > mejorScore) {
+                    mejorScore = score
+                    mejor = Contacto(nombre, numero)
+                }
             }
         }
-        return null
+        return if (mejor != null && mejorScore >= umbral) mejor else null
+    }
+
+    /**
+     * Similitud entre dos cadenas en [0,1] basada en la distancia de
+     * Levenshtein: 1 - distancia / longitud_máxima. Equivale, para nuestro uso,
+     * al SequenceMatcher.ratio() de la versión Python.
+     */
+    private fun ratio(a: String, b: String): Double {
+        if (a.isEmpty() && b.isEmpty()) return 1.0
+        val maxLen = maxOf(a.length, b.length)
+        if (maxLen == 0) return 1.0
+        return 1.0 - levenshtein(a, b).toDouble() / maxLen
+    }
+
+    private fun levenshtein(a: String, b: String): Int {
+        val dp = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..b.length) {
+                val tmp = dp[j]
+                val costo = if (a[i - 1] == b[j - 1]) 0 else 1
+                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + costo)
+                prev = tmp
+            }
+        }
+        return dp[b.length]
     }
 
     private fun readLastSms() {

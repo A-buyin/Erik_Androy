@@ -16,6 +16,7 @@ import json
 import re
 import time
 import shutil
+import difflib
 import unicodedata
 import tempfile
 import speech_recognition as sr
@@ -162,6 +163,82 @@ def normalizar(texto):
     t = unicodedata.normalize("NFD", texto or "")
     t = "".join(c for c in t if unicodedata.category(c) != "Mn")
     return re.sub(r"\s+", " ", t).lower().strip()
+
+
+def es_numero_telefono(texto):
+    """True si el objetivo parece un número marcable (solo dígitos y símbolos
+    típicos: +, -, espacios, paréntesis). Así distinguimos "300123456" de
+    un nombre de contacto como "Juan"."""
+    solo = re.sub(r"[\s\-()\.]", "", texto or "")
+    return bool(re.fullmatch(r"\+?\d{3,}", solo))
+
+
+def obtener_contactos():
+    """Lee la agenda de Android con termux-contact-list y devuelve una lista de
+    dicts {name, number}. Devuelve [] si no estamos en Termux o si falla
+    (p. ej. sin permiso de contactos o sin la app Termux:API)."""
+    if not shutil.which("termux-contact-list"):
+        return []
+    try:
+        raw = subprocess.check_output(
+            ["termux-contact-list"], stderr=subprocess.DEVNULL
+        )
+        datos = json.loads(raw)
+        return [c for c in datos if c.get("name") and c.get("number")]
+    except Exception:
+        return []
+
+
+def buscar_contacto(objetivo, contactos=None, umbral=0.62):
+    """Empareja lo que dijo el usuario ('objetivo') con el contacto más
+    parecido de la agenda, tolerando acentos y errores de transcripción de
+    Whisper. Devuelve (nombre, numero) del mejor contacto o None si no hay
+    ninguno lo bastante parecido.
+
+    Estrategia de puntuación (sobre texto normalizado):
+      • similitud del nombre completo (difflib),
+      • coincidencia con cada palabra suelta del nombre  ("juan" -> "Juan Pérez"),
+      • el objetivo contenido en el nombre o viceversa.
+    """
+    if contactos is None:
+        contactos = obtener_contactos()
+    if not contactos:
+        return None
+
+    obj = normalizar(objetivo)
+    if not obj:
+        return None
+
+    mejor = None
+    mejor_score = 0.0
+    for c in contactos:
+        nombre = c.get("name", "")
+        numero = c.get("number", "")
+        nombre_norm = normalizar(nombre)
+        if not nombre_norm or not numero:
+            continue
+
+        # Similitud del nombre completo.
+        score = difflib.SequenceMatcher(None, obj, nombre_norm).ratio()
+
+        # Coincidencia por palabras sueltas (nombre de pila o apellido).
+        for parte in nombre_norm.split():
+            if parte == obj:
+                score = max(score, 0.98)
+            else:
+                score = max(score, difflib.SequenceMatcher(None, obj, parte).ratio() * 0.85)
+
+        # El objetivo aparece dentro del nombre (o al revés).
+        if obj in nombre_norm or nombre_norm in obj:
+            score = max(score, 0.9)
+
+        if score > mejor_score:
+            mejor_score = score
+            mejor = (nombre, numero)
+
+    if mejor and mejor_score >= umbral:
+        return mejor
+    return None
 
 
 # Patrones tolerantes para los comandos de ML / LLM (sobre texto normalizado).
@@ -353,8 +430,20 @@ def procesar(comando):
     # ORDEN DE LLAMADA
     objetivo_llamada = extraer_objetivo_llamada(cmd)
     if objetivo_llamada:
-        hablar(f"Entendido. Marcando a {objetivo_llamada}")
-        subprocess.run(['termux-telephony-call', objetivo_llamada])
+        if es_numero_telefono(objetivo_llamada):
+            # Se dijo un número: marcar directamente.
+            numero = re.sub(r"[\s\-()\.]", "", objetivo_llamada)
+            hablar(f"Entendido. Marcando al número {numero}")
+            subprocess.run(['termux-telephony-call', numero])
+        else:
+            # Se dijo un nombre: buscarlo en la agenda del teléfono.
+            contacto = buscar_contacto(objetivo_llamada)
+            if contacto:
+                nombre, numero = contacto
+                hablar(f"Entendido. Llamando a {nombre}")
+                subprocess.run(['termux-telephony-call', numero])
+            else:
+                hablar(f"No encontré a {objetivo_llamada} en tus contactos.")
 
     # ORDEN DE LEER MENSAJES
     elif _PATRON_ULTIMO_MSJ.search(cmd_norm):
