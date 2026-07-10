@@ -135,7 +135,7 @@ class FirstFragment : Fragment() {
             val cmd = binding.inputCommand.text.toString().trim()
             if (cmd.isNotEmpty()) {
                 process(cmd)
-                binding.inputCommand.text.clear()
+                binding.inputCommand.text?.clear()
             }
         }
 
