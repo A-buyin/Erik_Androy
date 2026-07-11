@@ -44,6 +44,19 @@ except Exception:
     WhisperModel = None
     WHISPER_AVAILABLE = False
 
+# Búsqueda en internet opcional (DuckDuckGo, sin API key). El paquete se llama
+# "ddgs" (antes "duckduckgo_search"); admitimos ambos nombres.
+try:
+    from ddgs import DDGS
+    DDGS_OK = True
+except Exception:
+    try:
+        from duckduckgo_search import DDGS
+        DDGS_OK = True
+    except Exception:
+        DDGS = None
+        DDGS_OK = False
+
 # Se carga una sola vez (perezosamente) para no reinicializar en cada comando.
 _WHISPER_MODEL = None
 
@@ -251,6 +264,11 @@ TEXTO_AYUDA = """COMANDOS DISPONIBLES
                                   URL/modelo/clave se configuran en errik_config.json
                                   (o variables OLLAMA_URL / OLLAMA_MODEL / OLLAMA_API_KEY)
 
+[Internet]
+  • busca [texto]               -> busca en internet (DuckDuckGo) y resume por voz
+    variantes: "buscame...", "busca en internet...", "busca en google..."
+                                  Requiere el paquete: pip install ddgs
+
 [Sistema]
   • ayuda  /  help              -> muestra esta lista
   • clear  /  cls  /  limpiar   -> limpia la pantalla
@@ -331,6 +349,45 @@ def consultar_ollama(prompt, system=None):
         return "No pude conectar con el VPS de Ollama. Verifica la URL y que esté encendido."
     except Exception as e:
         return f"No pude consultar Ollama. Detalle: {e}"
+
+
+def buscar_en_internet(consulta, max_resultados=5):
+    """Busca `consulta` en internet (DuckDuckGo) y devuelve un texto con los
+    resultados (título + resumen) para dárselo como contexto al modelo.
+    Devuelve '' si no hay buscador disponible o si la búsqueda falla."""
+    if not DDGS_OK:
+        print("(búsqueda web no disponible: falta el paquete 'ddgs')")
+        return ""
+    try:
+        lineas = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(consulta, region="es-es", max_results=max_resultados):
+                titulo = (r.get("title") or "").strip()
+                cuerpo = (r.get("body") or "").strip()
+                if cuerpo:
+                    lineas.append(f"- {titulo}: {cuerpo}")
+        return "\n".join(lineas)
+    except Exception as e:
+        print(f"(búsqueda web falló: {e})")
+        return ""
+
+
+def responder_con_internet(consulta):
+    """Busca en internet y deja que el modelo del VPS resuma la respuesta por voz."""
+    hablar("Buscando en internet, Ariel...")
+    contexto = buscar_en_internet(consulta)
+    if not contexto:
+        hablar("No pude buscar en internet en este momento, Ariel.")
+        return
+    prompt = (
+        "Eres Erik, el asistente de Ariel. Usando SOLO la siguiente información "
+        "obtenida de internet, responde a la pregunta de forma breve (1 o 2 frases), "
+        "en español y para leerla en voz alta. Si la información no basta, dilo.\n\n"
+        f"INFORMACIÓN DE INTERNET:\n{contexto}\n\n"
+        f"PREGUNTA: {consulta}"
+    )
+    respuesta = consultar_ollama(prompt)
+    hablar(respuesta)
 
 
 # Bloque JSON de acción que el modelo añade al final de su respuesta.
@@ -546,6 +603,10 @@ _PATRON_OLLAMA = re.compile(
 _PATRON_SALUDO = re.compile(r"^\s*(?:(?:hola|ola|oye|hey|ey)\s+)?(?:erik|eric|erick|herik)\s*$")
 # Colgar la llamada.
 _PATRON_COLGAR = re.compile(r"\bcuelg\w*\b|\bcolg\w*\b|\bcort\w*\s+la\s+llamad\w*")
+# Búsqueda en internet: "busca ...", "búscame ...", "busca en internet/google/la web ...".
+# Se aplica sobre texto normalizado; captura la consulta como grupo 1.
+_PATRON_BUSCAR = re.compile(
+    r"\bbusc\w*\b\s+(?:en\s+(?:internet|google|la\s+web|la\s+red)\s+)?(.*)$")
 
 
 def _duracion_wav(ruta):
@@ -834,6 +895,7 @@ def procesar(comando):
         return True
 
     ollama_match = _PATRON_OLLAMA.search(cmd_norm)
+    busqueda_match = _PATRON_BUSCAR.search(cmd_norm)
 
     # ORDEN DE LLAMADA
     objetivo_llamada = extraer_objetivo_llamada(cmd)
@@ -903,6 +965,14 @@ def procesar(comando):
                 except Exception:
                     prob_anomalo = float(clase)
                 _anunciar_veredicto("Random Forest", clase, prob_anomalo, legible)
+
+    # ORDEN BUSCAR EN INTERNET
+    elif busqueda_match:
+        consulta = busqueda_match.group(1).strip().strip(".,;:!?¿¡").strip()
+        if not consulta:
+            hablar("¿Qué quieres que busque en internet, Ariel?")
+        else:
+            responder_con_internet(consulta)
 
     # ORDEN OLLAMA
     elif ollama_match:
