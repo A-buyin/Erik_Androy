@@ -22,7 +22,18 @@ import tempfile
 import speech_recognition as sr
 import joblib
 import requests
+import numpy as np
 from pathlib import Path
+
+# Extractor de features reales de la red (conexiones TCP del dispositivo).
+try:
+    from deteccion_red import extraer_features, NOMBRES_FEATURES
+    DETECCION_RED_OK = True
+except Exception as _e:
+    extraer_features = None
+    NOMBRES_FEATURES = []
+    DETECCION_RED_OK = False
+    print(f"Advertencia: no se pudo cargar deteccion_red: {_e}")
 
 # Whisper local opcional (fallback a Google STT si no está disponible)
 try:
@@ -76,12 +87,32 @@ except ImportError:
 except Exception as e:
     print(f"Advertencia al cargar Deep 1: {e}")
 
-# Deep Learning 2 (PyTorch placeholder)
+# Deep Learning 2 (PyTorch). Se reconstruye la red y se cargan los pesos.
 deep_model_2 = None
 deep_model_2_path = BASE_DIR / "Modelos_IDS" / "deep_model_2.pt"
 try:
     import torch
-    deep_model_2 = torch.load(deep_model_2_path, map_location="cpu")
+    import torch.nn as nn
+
+    # Misma arquitectura que en entrenar_modelos.py (10 features -> 2 clases).
+    class TinyNet(nn.Module):
+        def __init__(self, d):
+            super().__init__()
+            self.net = nn.Sequential(nn.Linear(d, 16), nn.ReLU(), nn.Linear(16, 2))
+
+        def forward(self, x):
+            return self.net(x)
+
+    _estado = torch.load(deep_model_2_path, map_location="cpu")
+    _d = len(NOMBRES_FEATURES) if NOMBRES_FEATURES else 10
+    if isinstance(_estado, dict):
+        deep_model_2 = TinyNet(_d)
+        deep_model_2.load_state_dict(_estado)
+        deep_model_2.eval()
+    else:
+        # Compatibilidad si el .pt guardara el modelo completo.
+        deep_model_2 = _estado
+        deep_model_2.eval()
     print(f"Modelo Deep 2 cargado correctamente desde: {deep_model_2_path}")
 except FileNotFoundError:
     print(f"Advertencia: no se encontró el modelo Deep 2 en '{deep_model_2_path}'.")
@@ -90,9 +121,66 @@ except ImportError:
 except Exception as e:
     print(f"Advertencia al cargar Deep 2: {e}")
 
-# 2. Configuración de Ollama local
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "llama3.1:8b"
+# Scaler compartido por los 3 modelos (StandardScaler ajustado en entrenamiento).
+scaler = None
+scaler_path = BASE_DIR / "Modelos_IDS" / "scaler.pkl"
+try:
+    scaler = joblib.load(scaler_path)
+    print(f"Scaler cargado correctamente desde: {scaler_path}")
+except FileNotFoundError:
+    print(f"Advertencia: no se encontró el scaler en '{scaler_path}'. "
+          f"Ejecuta 'python entrenar_modelos.py'.")
+except Exception as e:
+    print(f"Advertencia al cargar el scaler: {e}")
+
+# 2. Configuración de Ollama (local o VPS remoto).
+# NO se escriben aquí ni el dominio ni la clave: el repo es público. Se leen de
+# variables de entorno o de errik_config.json (ignorado por git). Orden de
+# prioridad: variables de entorno > errik_config.json > valores por defecto.
+def _cargar_config_ollama():
+    cfg = {
+        "ollama_url": "http://localhost:11434/api/generate",
+        "ollama_model": "llama3.1:8b",
+        # Autenticación Basic (usuario/contraseña) — la que usa el proxy Caddy del VPS.
+        "ollama_user": "",
+        "ollama_password": "",
+        # Alternativa: token Bearer (por si algún día se cambia el proxy).
+        "ollama_api_key": "",
+    }
+    archivo = BASE_DIR / "errik_config.json"
+    if archivo.exists():
+        try:
+            datos = json.loads(archivo.read_text(encoding="utf-8"))
+            for clave in cfg:
+                if datos.get(clave):
+                    cfg[clave] = datos[clave]
+        except Exception as e:
+            print(f"Advertencia: errik_config.json inválido, se ignora: {e}")
+    # Las variables de entorno tienen prioridad (útil para pruebas rápidas).
+    cfg["ollama_url"] = os.environ.get("OLLAMA_URL", cfg["ollama_url"])
+    cfg["ollama_model"] = os.environ.get("OLLAMA_MODEL", cfg["ollama_model"])
+    cfg["ollama_user"] = os.environ.get("OLLAMA_USER", cfg["ollama_user"])
+    cfg["ollama_password"] = os.environ.get("OLLAMA_PASSWORD", cfg["ollama_password"])
+    cfg["ollama_api_key"] = os.environ.get("OLLAMA_API_KEY", cfg["ollama_api_key"])
+    return cfg
+
+
+_CFG_OLLAMA = _cargar_config_ollama()
+OLLAMA_URL = _CFG_OLLAMA["ollama_url"]
+OLLAMA_MODEL = _CFG_OLLAMA["ollama_model"]
+OLLAMA_USER = _CFG_OLLAMA["ollama_user"]
+OLLAMA_PASSWORD = _CFG_OLLAMA["ollama_password"]
+OLLAMA_API_KEY = _CFG_OLLAMA["ollama_api_key"]
+
+# Aviso discreto de a qué Ollama apunta (sin revelar credenciales).
+_destino = "VPS remoto" if "localhost" not in OLLAMA_URL and "127.0.0.1" not in OLLAMA_URL else "local"
+if OLLAMA_USER:
+    _auth = "auth usuario/contraseña"
+elif OLLAMA_API_KEY:
+    _auth = "auth token"
+else:
+    _auth = "sin auth"
+print(f"Ollama: modelo '{OLLAMA_MODEL}' en {_destino} ({_auth})")
 
 TEXTO_AYUDA = """COMANDOS DISPONIBLES
 
@@ -116,10 +204,11 @@ TEXTO_AYUDA = """COMANDOS DISPONIBLES
     variantes: deep/dip/dep/the + dos/2/segundo  (ej: "ejecuta dip 2")
                                   Archivo: Modelos_IDS/deep_model_2.pt
 
-[LLM local]
-  • pregunta a ollama [texto]   -> consulta a Ollama (modelo llama3.1:8b)
+[LLM Ollama]  (local o VPS remoto)
+  • pregunta a ollama [texto]   -> consulta a Ollama
     variantes: "preguntale a ollama...", "consulta a ollama...", "o llama"
-                                  Requiere Ollama corriendo en localhost:11434
+                                  URL/modelo/clave se configuran en errik_config.json
+                                  (o variables OLLAMA_URL / OLLAMA_MODEL / OLLAMA_API_KEY)
 
 [Sistema]
   • ayuda  /  help              -> muestra esta lista
@@ -131,14 +220,48 @@ def consultar_ollama(prompt):
         payload = {
             "model": OLLAMA_MODEL,
             "prompt": prompt,
-            "stream": False
+            "stream": False,
+            # Mantener el modelo cargado en memoria 30 min para que no vuelva a
+            # tardar ~90s en "arrancar en frío" en cada pregunta.
+            "keep_alive": "30m",
+            # Respuestas cortas: se leen en voz alta, no hace falta un ensayo.
+            "options": {"num_predict": 200},
         }
-        respuesta = requests.post(OLLAMA_URL, json=payload, timeout=60)
+        headers = {}
+        auth = None
+        if OLLAMA_USER:
+            # Basic auth (usuario/contraseña) — lo que exige el proxy Caddy del VPS.
+            auth = (OLLAMA_USER, OLLAMA_PASSWORD)
+        elif OLLAMA_API_KEY:
+            headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+        # timeout amplio: el primer arranque del modelo en el VPS puede tardar ~90s.
+        respuesta = requests.post(OLLAMA_URL, json=payload, headers=headers,
+                                  auth=auth, timeout=300)
         respuesta.raise_for_status()
         data = respuesta.json()
         return data.get("response", "").strip()
+    except requests.exceptions.Timeout:
+        return "El VPS de Ollama tardó demasiado en responder."
+    except requests.exceptions.ConnectionError:
+        return "No pude conectar con el VPS de Ollama. Verifica la URL y que esté encendido."
     except Exception as e:
-        return f"No pude consultar Ollama. Verifica que esté corriendo. Detalle: {e}"
+        return f"No pude consultar Ollama. Detalle: {e}"
+
+
+def consultar_ollama_como_errik(texto):
+    """Usa el modelo del VPS como el 'cerebro' de Errik para responder libremente.
+
+    Envuelve la pregunta con una instrucción para que la respuesta sea breve y
+    apta para leerse en voz alta (sin listas ni markdown).
+    """
+    prompt = (
+        "Eres Errik, un asistente de voz en español. Responde de forma breve, "
+        "clara y natural, en 2 o 3 frases como máximo, sin listas ni markdown, "
+        "porque tu respuesta se leerá en voz alta. "
+        "Si no sabes algo, dilo con sencillez. "
+        "Pregunta del usuario: " + texto
+    )
+    return consultar_ollama(prompt)
 
 # Detección tolerante de la orden de llamada.
 # Acepta: llama / llamar / llamada / marca / marcar / telefonea(r),
@@ -267,6 +390,43 @@ def hablar(texto):
             subprocess.run(["termux-tts-speak", texto], check=False)
         except Exception:
             pass
+
+
+def _leer_red_para_modelo():
+    """Extrae las features reales de la red y las deja listas para los modelos.
+
+    Devuelve (X_escalado_2d, vector_crudo, legible) o (None, None, None) si no se
+    pudo leer la red. `hablar` ya informa del motivo.
+    """
+    if not DETECCION_RED_OK or extraer_features is None:
+        hablar("No tengo el módulo de detección de red disponible.")
+        return None, None, None
+    vector, legible = extraer_features()
+    if vector is None:
+        hablar("No pude leer las conexiones de red en este dispositivo.")
+        hablar("En Android con Termux debería funcionar; en el PC puede faltar.")
+        return None, None, None
+    X = vector.reshape(1, -1).astype("float32")
+    if scaler is not None:
+        try:
+            X = scaler.transform(X).astype("float32")
+        except Exception as e:
+            print(f"Advertencia: fallo al escalar features: {e}")
+    return X, vector, legible
+
+
+def _anunciar_veredicto(nombre_modelo, clase, prob_anomalo, legible):
+    """Locuta el resultado de una predicción de forma uniforme."""
+    estado = "ANÓMALA" if clase == 1 else "NORMAL"
+    pct = int(round(prob_anomalo * 100))
+    hablar(f"{nombre_modelo}: la actividad de red parece {estado}. "
+           f"Probabilidad de anomalía {pct} por ciento.")
+    if legible:
+        # Contexto breve de las señales más relevantes.
+        hablar(f"Conexiones activas {int(legible['total_conexiones'])}, "
+               f"IPs remotas distintas {int(legible['ips_remotas_unicas'])}, "
+               f"intentos salientes {int(legible['syn_sent'])}.")
+
 
 def transcribir_con_whisper(audio_data):
     if not WHISPER_AVAILABLE:
@@ -456,26 +616,34 @@ def procesar(comando):
         else:
             hablar("No hay mensajes nuevos en el registro.")
 
-    # ORDEN DEEP 1
+    # ORDEN DEEP 1 (Keras/TensorFlow) sobre la red real
     elif _PATRON_DEEP1.search(cmd_norm):
         if deep_model_1 is None:
             hablar("El modelo Deep 1 no está disponible.")
             hablar("Verifica Modelos_IDS/deep_model_1.h5 e instalación de TensorFlow.")
         else:
-            hablar("Modelo Deep 1 listo para inferencia.")
-            # pred = deep_model_1.predict(datos_preprocesados)
-            # hablar(f"Resultado Deep 1: {pred}")
+            hablar("Analizando la red con la red neuronal Keras...")
+            X, _vector, legible = _leer_red_para_modelo()
+            if X is not None:
+                probs = deep_model_1.predict(X, verbose=0)[0]
+                clase = int(np.argmax(probs))
+                _anunciar_veredicto("Deep uno", clase, float(probs[1]), legible)
 
-    # ORDEN DEEP 2
+    # ORDEN DEEP 2 (PyTorch) sobre la red real
     elif _PATRON_DEEP2.search(cmd_norm):
         if deep_model_2 is None:
             hablar("El modelo Deep 2 no está disponible.")
             hablar("Verifica Modelos_IDS/deep_model_2.pt e instalación de PyTorch.")
         else:
-            hablar("Modelo Deep 2 listo para inferencia.")
-            # with torch.no_grad():
-            #     pred = deep_model_2(tensor_entrada)
-            # hablar(f"Resultado Deep 2: {pred}")
+            hablar("Analizando la red con la red neuronal PyTorch...")
+            X, _vector, legible = _leer_red_para_modelo()
+            if X is not None:
+                import torch
+                with torch.no_grad():
+                    logits = deep_model_2(torch.from_numpy(X))
+                    probs = torch.softmax(logits, dim=1)[0].numpy()
+                clase = int(np.argmax(probs))
+                _anunciar_veredicto("Deep dos", clase, float(probs[1]), legible)
 
     # ORDEN IDS (Random Forest). Se comprueba después de los "deep" para no
     # capturar por error un "ejecutar deep ..." con la palabra escaneo.
@@ -484,10 +652,15 @@ def procesar(comando):
             hablar("No puedo ejecutar el escaneo porque el modelo no está disponible.")
             hablar("Verifica que exista el archivo Modelos_IDS/ids_random_forest.pkl")
         else:
-            hablar("Iniciando análisis con el modelo Random Forest...")
-            # Aquí llamas a tu modelo con datos reales:
-            # pred = modelo.predict(datos)
-            # hablar(f"Resultado del escaneo: {pred}")
+            hablar("Iniciando análisis de la red con el modelo Random Forest...")
+            X, _vector, legible = _leer_red_para_modelo()
+            if X is not None:
+                clase = int(modelo.predict(X)[0])
+                try:
+                    prob_anomalo = float(modelo.predict_proba(X)[0][1])
+                except Exception:
+                    prob_anomalo = float(clase)
+                _anunciar_veredicto("Random Forest", clase, prob_anomalo, legible)
 
     # ORDEN OLLAMA
     elif ollama_match:
@@ -504,7 +677,15 @@ def procesar(comando):
         return False
 
     else:
-        hablar('Comando no reconocido. Di "ayuda" para escuchar la lista de comandos.')
+        # Todo lo que no sea un comando específico se lo pasamos al modelo del VPS:
+        # Ollama es la herramienta-cerebro fija de Errik para responder libremente.
+        texto = comando.strip()
+        if len(texto) >= 3:
+            hablar("Déjame pensarlo un momento...")
+            respuesta_llm = consultar_ollama_como_errik(texto)
+            hablar(respuesta_llm)
+        else:
+            hablar('No te entendí. Di "ayuda" para escuchar la lista de comandos.')
 
     return True
 

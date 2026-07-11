@@ -22,3 +22,7 @@ models_cache/
 *.log
 *.tmp
 temp/
+
+# Configuración local con secretos (URL del VPS y API key de Ollama).
+# NO se versiona. Usar errik_config.example.json como plantilla.
+errik_config.json

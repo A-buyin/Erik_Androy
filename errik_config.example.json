@@ -1,0 +1,9 @@
+{
+  "_comentario": "PLANTILLA. Copia este archivo a 'errik_config.json' y pon ahí tus datos reales. errik_config.json está en .gitignore y NO se sube al repo. NO escribas credenciales reales en este archivo .example.",
+  "ollama_url": "https://api.blatcode.com/api/generate",
+  "ollama_model": "llama3.1:8b",
+  "ollama_user": "TU_USUARIO",
+  "ollama_password": "TU_CONTRASEÑA",
+  "_nota_auth": "El VPS usa Basic Auth (usuario/contraseña) vía Caddy. Si algún día cambias a token, usa 'ollama_api_key' en su lugar.",
+  "ollama_api_key": ""
+}
