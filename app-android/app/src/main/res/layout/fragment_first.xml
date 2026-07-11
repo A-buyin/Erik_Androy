@@ -91,6 +91,17 @@
                     app:cornerRadius="14dp"
                     app:icon="@drawable/ic_mic"
                     app:iconGravity="textStart" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_contacts"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Contactos del teléfono"
+                    app:cornerRadius="14dp"
+                    app:icon="@drawable/ic_contacts"
+                    app:iconGravity="textStart" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

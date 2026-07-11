@@ -5,8 +5,10 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -17,6 +19,7 @@ import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.erikpy.databinding.FragmentFirstBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.Locale
 
 class FirstFragment : Fragment() {
@@ -55,6 +58,14 @@ class FirstFragment : Fragment() {
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* si el usuario niega alguno, se avisará al usarlo */ }
+
+    // Permiso de contactos pedido al pulsar el botón "Contactos del teléfono".
+    private val requestContactsPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) mostrarContactos()
+        else respond("Necesito permiso de contactos para mostrarte la agenda, Ariel.")
+    }
 
     // Permisos para la escucha permanente (micrófono + notificación).
     private val requestWakePermissions = registerForActivityResult(
@@ -132,6 +143,11 @@ class FirstFragment : Fragment() {
 
         binding.buttonTranslator.setOnClickListener {
             startActivity(Intent(requireContext(), TranslatorActivity::class.java))
+        }
+
+        binding.buttonContacts.setOnClickListener {
+            if (hasPermission(Manifest.permission.READ_CONTACTS)) mostrarContactos()
+            else requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
         }
 
         // Interruptor de escucha permanente ("hola Erik").
@@ -219,6 +235,67 @@ class FirstFragment : Fragment() {
     /** Muestra un texto en pantalla SIN leerlo en voz alta. */
     private fun mostrar(text: String) {
         _binding?.textviewResponse?.text = text
+    }
+
+    // --- Contactos del teléfono ---
+
+    private data class ContactoAgenda(val nombre: String, val numero: String)
+
+    /** Lee TODOS los contactos en segundo plano y los muestra en una lista. */
+    private fun mostrarContactos() {
+        mostrar("Cargando contactos, Ariel...")
+        Thread {
+            val lista = leerTodosLosContactos()
+            activity?.runOnUiThread {
+                if (!isAdded || _binding == null) return@runOnUiThread
+                if (lista.isEmpty()) {
+                    respond("No encontré contactos en el teléfono, Ariel.")
+                } else {
+                    mostrar("Tienes ${lista.size} contactos, Ariel.")
+                    mostrarDialogoContactos(lista)
+                }
+            }
+        }.start()
+    }
+
+    /** Consulta la agenda (nombre + número), ordenada y sin duplicados. */
+    private fun leerTodosLosContactos(): List<ContactoAgenda> {
+        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        )
+        val orden = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE NOCASE ASC"
+        val vistos = HashSet<String>()
+        val lista = ArrayList<ContactoAgenda>()
+        requireContext().contentResolver.query(uri, projection, null, null, orden)?.use { c ->
+            while (c.moveToNext()) {
+                val nombre = c.getString(0) ?: continue
+                val numero = c.getString(1) ?: continue
+                // Evita repetir el mismo nombre+número (varias cuentas sincronizadas).
+                val clave = "$nombre|${numero.filter { it.isDigit() }}"
+                if (vistos.add(clave)) lista.add(ContactoAgenda(nombre, numero))
+            }
+        }
+        return lista
+    }
+
+    /** Diálogo con la lista de contactos; al tocar uno abre el marcador. */
+    private fun mostrarDialogoContactos(contactos: List<ContactoAgenda>) {
+        val items = contactos.map { "${it.nombre}\n${it.numero}" }.toTypedArray()
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Contactos (${contactos.size})")
+            .setItems(items) { _, which ->
+                val c = contactos[which]
+                // Abre el marcador con el número (sin llamar automáticamente).
+                try {
+                    startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${c.numero}")))
+                } catch (e: Exception) {
+                    respond("No pude abrir el marcador, Ariel.")
+                }
+            }
+            .setPositiveButton("Cerrar", null)
+            .show()
     }
 
     // --- Respuesta por voz / pantalla ---
