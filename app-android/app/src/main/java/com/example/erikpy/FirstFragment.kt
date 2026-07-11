@@ -22,6 +22,7 @@ import androidx.fragment.app.Fragment
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.erikpy.databinding.FragmentFirstBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import java.io.File
 import java.util.Locale
 
 class FirstFragment : Fragment() {
@@ -67,6 +68,14 @@ class FirstFragment : Fragment() {
     ) { granted ->
         if (granted) mostrarContactos()
         else respond("Necesito permiso de contactos para mostrarte la agenda, Ariel.")
+    }
+
+    // Permiso de micrófono pedido al pulsar "Grabar mi voz".
+    private val requestMicPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) iniciarGrabacionVoz()
+        else respond("Necesito permiso de micrófono para grabar tu voz, Ariel.")
     }
 
     // Permisos para la escucha permanente (micrófono + notificación).
@@ -150,6 +159,12 @@ class FirstFragment : Fragment() {
         binding.buttonContacts.setOnClickListener {
             if (hasPermission(Manifest.permission.READ_CONTACTS)) mostrarContactos()
             else requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
+        }
+
+        binding.buttonGrabarVoz.setOnClickListener {
+            if (grabandoVoz) detenerGrabacionVoz()
+            else if (hasPermission(Manifest.permission.RECORD_AUDIO)) iniciarGrabacionVoz()
+            else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
 
         // Interruptor de escucha permanente ("hola Erik").
@@ -329,6 +344,63 @@ class FirstFragment : Fragment() {
         }
     }
 
+    // --- Grabar mi voz (para clonarla en el VPS) ---
+
+    private var grabador: GrabadorVoz? = null
+    private var grabandoVoz = false
+    private var archivoVoz: File? = null
+    private var segundosGrab = 0
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val cronometro = object : Runnable {
+        override fun run() {
+            if (!grabandoVoz) return
+            segundosGrab++
+            binding.buttonGrabarVoz.text =
+                String.format(Locale.ROOT, "⏹️ Detener (%02d:%02d)", segundosGrab / 60, segundosGrab % 60)
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun iniciarGrabacionVoz() {
+        // Libera el micrófono de la escucha permanente si estuviera activa.
+        requireContext().stopService(Intent(requireContext(), WakeWordService::class.java))
+        binding.switchWake.isChecked = false
+
+        val dir = requireContext().getExternalFilesDir(null)
+        val archivo = File(dir, "mi_voz_${System.currentTimeMillis()}.wav")
+        val g = GrabadorVoz(archivo)
+        try {
+            g.iniciar()
+        } catch (e: Exception) {
+            respond("No pude iniciar la grabación, Ariel: ${e.message}")
+            return
+        }
+        grabador = g
+        archivoVoz = archivo
+        grabandoVoz = true
+        segundosGrab = 0
+        mostrar("Grabando tu voz, Ariel... habla natural y pulsa de nuevo para detener.")
+        binding.buttonGrabarVoz.text = "⏹️ Detener (00:00)"
+        handler.postDelayed(cronometro, 1000)
+    }
+
+    private fun detenerGrabacionVoz() {
+        grabandoVoz = false
+        handler.removeCallbacks(cronometro)
+        grabador?.detener()
+        grabador = null
+        binding.buttonGrabarVoz.text = "Grabar mi voz (para clonarla)"
+
+        val f = archivoVoz
+        if (f != null && f.exists() && f.length() > 2048) {
+            val kb = f.length() / 1024
+            respond("Voz guardada, Ariel: ${f.name}, ${kb} KB, ${segundosGrab} segundos.")
+            android.util.Log.i("ErikVoz", "Grabación guardada en: ${f.absolutePath}")
+        } else {
+            respond("La grabación salió vacía, Ariel. Revisa el permiso de micrófono e intenta de nuevo.")
+        }
+    }
+
     // --- Respuesta por voz / pantalla ---
 
     private fun respond(text: String) {
@@ -355,6 +427,11 @@ class FirstFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        if (grabandoVoz) {
+            grabandoVoz = false
+            handler.removeCallbacks(cronometro)
+            grabador?.detener(); grabador = null
+        }
         tts?.stop(); tts?.shutdown(); tts = null
         _binding = null
     }
