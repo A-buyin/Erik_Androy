@@ -7,54 +7,48 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import java.io.File
-import java.net.URL
-import java.text.Normalizer
 import java.util.Locale
-import java.util.zip.ZipInputStream
 
 /**
- * Servicio en primer plano que escucha SIEMPRE (app abierta o cerrada) la palabra
- * de activación "hola Erik" con el motor offline Vosk. Al detectarla, saluda y
- * captura la siguiente frase como comando, que ejecuta con CommandHandler.
+ * Escucha permanente con el reconocedor de GOOGLE (el que sí funciona en el
+ * teléfono), con máquina de estados y SILENCIADO DE ECO:
  *
- * Funciona en DOS fases para máxima precisión:
- *  1) Fase ESPERA: reconocedor con GRAMÁTICA limitada ("hola erik", "erik"...).
- *     Con el modelo pequeño esto detecta la palabra clave mucho mejor.
- *  2) Fase COMANDO: reconocedor LIBRE para captar cualquier orden (nombres, etc.).
+ *  - ESPERA: escucha hasta oír "hola Erik". Si la frase trae la orden
+ *    ("Erik llama a Hilda") la ejecuta; si es solo "hola Erik", saluda y pasa a COMANDO.
+ *  - COMANDO: la siguiente frase se ejecuta como orden (aunque no diga "Erik").
+ *  - Mientras Erik HABLA (TTS) NO escucha, para no oírse a sí mismo.
+ *
+ * Requiere RECORD_AUDIO, FOREGROUND_SERVICE_MICROPHONE y notificación permanente.
  */
 class WakeWordService : Service() {
 
     companion object {
-        const val MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip"
-        const val MODEL_DIR = "vosk-model-small-es-0.42"
         private const val CHANNEL_ID = "erik_wake"
         private const val NOTIF_ID = 1001
-        private const val SAMPLE_RATE = 16000.0f
-        // Solo estas frases en la fase de espera -> detección de "Erik" muy fiable.
-        private const val WAKE_GRAMMAR =
-            "[\"hola erik\", \"oye erik\", \"hey erik\", \"ola erik\", \"erik\", \"[unk]\"]"
+        private const val VENTANA_COMANDO_MS = 10000L
     }
 
-    private enum class Fase { ESPERA, SALUDANDO, COMANDO }
+    private enum class Estado { ESPERA, COMANDO }
 
-    private var model: Model? = null
-    private var speechService: SpeechService? = null
+    private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var handler: CommandHandler? = null
     private val main = Handler(Looper.getMainLooper())
 
-    @Volatile private var fase = Fase.ESPERA
+    @Volatile private var activo = false
+    @Volatile private var estado = Estado.ESPERA
+    @Volatile private var pendientesTts = 0   // >0 = Erik está hablando (no escuchar)
+    private var idTts = 0
+
+    private val reWake = Regex("(?i)\\b(?:hola\\s+|oye\\s+|hey\\s+|ola\\s+)?(?:erik|eric|erick|herik|érik)\\b")
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -63,162 +57,116 @@ class WakeWordService : Service() {
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) tts?.language = Locale.forLanguageTag("es-ES")
         }
-        handler = CommandHandler(applicationContext) { texto ->
-            tts?.speak(texto, TextToSpeech.QUEUE_ADD, null, "erik")
-        }
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) = finHabla()
+            override fun onError(utteranceId: String?) = finHabla()
+        })
+        handler = CommandHandler(applicationContext) { texto -> hablar(texto) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundConNotificacion("Preparando a Erik...")
-        Thread {
-            val path = try { ensureModel() } catch (e: Exception) {
-                android.util.Log.e("ErikVoz", "Error con el modelo: ${e.message}"); null
+        startForegroundConNotificacion("Erik está escuchando. Di \"hola Erik\".")
+        activo = true
+        main.post {
+            if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+                notificar("El reconocimiento de voz no está disponible."); return@post
             }
-            if (path == null) { notificar("No pude preparar el reconocimiento de voz."); return@Thread }
-            try {
-                model = Model(path)
-                escucharEspera()
-                notificar("Erik está escuchando. Di \"hola Erik\".")
-            } catch (e: Exception) {
-                android.util.Log.e("ErikVoz", "Error iniciando Vosk: ${e.message}")
-                notificar("No pude iniciar la escucha.")
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(oyente)
             }
-        }.start()
+            // Pequeño retardo para no captar audio residual del arranque.
+            main.postDelayed({ escuchar() }, 1000)
+        }
         return START_STICKY
     }
 
-    // --- Fase 1: espera de la palabra de activación (gramática limitada) ---
+    // --- Habla con silenciado de eco (no escucha mientras suena el TTS) ---
 
-    private fun escucharEspera() {
-        fase = Fase.ESPERA
-        reiniciarReconocedor(Recognizer(model, SAMPLE_RATE, WAKE_GRAMMAR)) {
-            object : RecognitionListener {
-                override fun onPartialResult(hypothesis: String?) {
-                    if (fase == Fase.ESPERA && contieneWake(textoDe(hypothesis, "partial"))) despertar()
-                }
-                override fun onResult(hypothesis: String?) {
-                    val t = textoDe(hypothesis, "text")
-                    if (t.isNotBlank()) android.util.Log.i("ErikVoz", "Vosk(espera) oyó: $t")
-                    if (fase == Fase.ESPERA && contieneWake(t)) despertar()
-                }
-                override fun onFinalResult(hypothesis: String?) {}
-                override fun onError(exception: Exception?) {
-                    android.util.Log.e("ErikVoz", "Vosk error (espera): ${exception?.message}")
-                }
-                override fun onTimeout() {}
-            }
-        }
+    private fun hablar(texto: String) {
+        pendientesTts++
+        try { recognizer?.cancel() } catch (e: Exception) {}
+        tts?.speak(texto, TextToSpeech.QUEUE_ADD, null, "u${++idTts}")
     }
 
-    /** Oyó "hola Erik": saluda y, al terminar de hablar, pasa a captar el comando. */
-    private fun despertar() {
-        if (fase != Fase.ESPERA) return
-        fase = Fase.SALUDANDO
-        android.util.Log.i("ErikVoz", "Palabra de activación detectada")
-        pararReconocedor()
-        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onError(utteranceId: String?) { main.post { escucharEspera() } }
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId == "saludo") main.post { escucharComando() }
-            }
-        })
-        tts?.speak("Hola Ariel, ¿en qué te puedo ayudar?", TextToSpeech.QUEUE_FLUSH, null, "saludo")
-    }
-
-    // --- Fase 2: captar el comando (reconocimiento libre) ---
-
-    private fun escucharComando() {
-        fase = Fase.COMANDO
-        reiniciarReconocedor(Recognizer(model, SAMPLE_RATE)) {
-            object : RecognitionListener {
-                override fun onPartialResult(hypothesis: String?) {}
-                override fun onResult(hypothesis: String?) {
-                    val t = textoDe(hypothesis, "text")
-                    if (fase == Fase.COMANDO && t.isNotBlank() && !esSoloWake(t)) {
-                        fase = Fase.ESPERA
-                        android.util.Log.i("ErikVoz", "Comando por voz: $t")
-                        handler?.handle(t)
-                        main.postDelayed({ escucharEspera() }, 1500)
-                    }
-                }
-                override fun onFinalResult(hypothesis: String?) {}
-                override fun onError(exception: Exception?) {
-                    android.util.Log.e("ErikVoz", "Vosk error (comando): ${exception?.message}")
-                    main.post { escucharEspera() }
-                }
-                override fun onTimeout() {}
-            }
-        }
-        // Si en 8 s no dice nada, vuelve a la fase de espera.
-        main.postDelayed({ if (fase == Fase.COMANDO) escucharEspera() }, 8000)
-    }
-
-    // --- Gestión del reconocedor / micrófono ---
-
-    private fun reiniciarReconocedor(recognizer: Recognizer, listener: () -> RecognitionListener) {
-        pararReconocedor()
+    private fun finHabla() {
         main.post {
-            try {
-                val service = SpeechService(recognizer, SAMPLE_RATE)
-                speechService = service
-                service.startListening(listener())
-            } catch (e: Exception) {
-                android.util.Log.e("ErikVoz", "No pude abrir el micrófono: ${e.message}")
-            }
+            pendientesTts = maxOf(0, pendientesTts - 1)
+            if (pendientesTts == 0 && activo) escuchar()   // al callar, vuelve a escuchar
         }
     }
 
-    private fun pararReconocedor() {
-        try { speechService?.stop() } catch (e: Exception) {}
-        try { speechService?.shutdown() } catch (e: Exception) {}
-        speechService = null
+    // --- Escucha (Google) ---
+
+    private fun escuchar() {
+        if (!activo || pendientesTts > 0) return
+        try {
+            recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            })
+        } catch (e: Exception) {
+            android.util.Log.e("ErikVoz", "startListening falló: ${e.message}")
+            reintentar(1000)
+        }
     }
 
-    // --- Utilidades de texto ---
-
-    private fun textoDe(hypothesis: String?, clave: String): String =
-        try { JSONObject(hypothesis ?: "{}").optString(clave) } catch (e: Exception) { "" }
-
-    private fun normalizar(texto: String): String {
-        val nfd = Normalizer.normalize(texto, Normalizer.Form.NFD)
-        return nfd.replace(Regex("\\p{Mn}+"), "").lowercase(Locale.ROOT)
-            .replace(Regex("\\s+"), " ").trim()
-    }
-
-    private fun contieneWake(texto: String): Boolean {
-        val t = normalizar(texto)
-        return t.contains("erik") || t.contains("eric") || t.contains("herik")
-    }
-
-    private fun esSoloWake(texto: String): Boolean {
-        val t = normalizar(texto).replace("hola", "").replace("oye", "").replace("hey", "").trim()
-        return t.isEmpty() || t == "erik" || t == "eric" || t == "herik"
-    }
-
-    // --- Modelo Vosk: descarga + descompresión ---
-
-    private fun ensureModel(): String? {
-        val modelDir = File(filesDir, MODEL_DIR)
-        if (File(modelDir, "conf").exists()) return modelDir.absolutePath
-        notificar("Descargando voz de Erik (~38 MB)...")
-        val zip = File(cacheDir, "model.zip")
-        URL(MODEL_URL).openStream().use { input -> zip.outputStream().use { input.copyTo(it) } }
-        notificar("Instalando la voz...")
-        descomprimir(zip, filesDir)
-        zip.delete()
-        return if (File(modelDir, "conf").exists()) modelDir.absolutePath else null
-    }
-
-    private fun descomprimir(zipFile: File, targetDir: File) {
-        ZipInputStream(zipFile.inputStream().buffered()).use { zis ->
-            var entry = zis.nextEntry
-            while (entry != null) {
-                val outFile = File(targetDir, entry.name)
-                if (entry.isDirectory) outFile.mkdirs()
-                else { outFile.parentFile?.mkdirs(); outFile.outputStream().use { zis.copyTo(it) } }
-                entry = zis.nextEntry
+    private fun reintentar(delayMs: Long = 350) {
+        if (!activo) return
+        main.postDelayed({
+            if (activo && pendientesTts == 0) {
+                try { recognizer?.cancel() } catch (e: Exception) {}
+                escuchar()
             }
+        }, delayMs)
+    }
+
+    private val oyente = object : android.speech.RecognitionListener {
+        override fun onResults(results: Bundle?) {
+            val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()?.trim().orEmpty()
+            if (texto.isNotBlank()) android.util.Log.i("ErikVoz", "oyó (Google): $texto")
+            val actuo = procesar(texto)
+            if (!actuo) reintentar()   // si actuó, el TTS reanudará la escucha al callar
+        }
+        override fun onError(error: Int) {
+            if (pendientesTts > 0) return   // estamos hablando; ya se reanudará
+            reintentar(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200 else 400)
+        }
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onPartialResults(partialResults: Bundle?) {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    /** Devuelve true si atendió algo (y por tanto habrá TTS que reanuda la escucha). */
+    private fun procesar(texto: String): Boolean {
+        if (texto.isBlank()) return false
+
+        if (estado == Estado.COMANDO) {
+            estado = Estado.ESPERA
+            android.util.Log.i("ErikVoz", "Ejecutando comando: $texto")
+            handler?.handle(texto)
+            return true
+        }
+
+        // Estado ESPERA: debe contener "Erik".
+        val m = reWake.find(texto) ?: return false
+        android.util.Log.i("ErikVoz", "Palabra de activación detectada")
+        val resto = texto.substring(m.range.last + 1).trim().trim { it in ".,;:!?¿¡ " }
+        return if (resto.length >= 3) {
+            android.util.Log.i("ErikVoz", "Comando en la misma frase: $resto")
+            handler?.handle(resto)
+            true
+        } else {
+            estado = Estado.COMANDO
+            main.postDelayed({ if (estado == Estado.COMANDO) estado = Estado.ESPERA }, VENTANA_COMANDO_MS)
+            hablar("Hola Ariel, ¿en qué te puedo ayudar?")
+            true
         }
     }
 
@@ -257,8 +205,9 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        pararReconocedor()
-        model?.close(); model = null
+        activo = false
+        try { recognizer?.destroy() } catch (e: Exception) {}
+        recognizer = null
         tts?.stop(); tts?.shutdown(); tts = null
     }
 }

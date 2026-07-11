@@ -62,8 +62,6 @@ android {
 }
 
 dependencies {
-    // Motor de reconocimiento de voz offline (palabra de activación "hola Erik").
-    implementation("com.alphacephei:vosk-android:0.3.47")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)

@@ -202,12 +202,19 @@ class FirstFragment : Fragment() {
     private fun startWakeService() {
         val intent = Intent(requireContext(), WakeWordService::class.java)
         ContextCompat.startForegroundService(requireContext(), intent)
-        respond("Escucha permanente activada. Di \"hola Erik\" cuando quieras, Ariel.")
+        // Solo en pantalla, SIN voz: si se dijera en voz alta, el servicio se
+        // oiría a sí mismo ("...di hola Erik...") y se activaría en falso.
+        mostrar("Escucha permanente activada. Di \"hola Erik\" cuando quieras, Ariel.")
     }
 
     private fun stopWakeService() {
         requireContext().stopService(Intent(requireContext(), WakeWordService::class.java))
-        respond("Escucha permanente desactivada, Ariel.")
+        mostrar("Escucha permanente desactivada, Ariel.")
+    }
+
+    /** Muestra un texto en pantalla SIN leerlo en voz alta. */
+    private fun mostrar(text: String) {
+        _binding?.textviewResponse?.text = text
     }
 
     // --- Respuesta por voz / pantalla ---
