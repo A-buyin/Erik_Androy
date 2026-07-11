@@ -17,6 +17,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.Fragment
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.erikpy.databinding.FragmentFirstBinding
@@ -240,7 +241,7 @@ class FirstFragment : Fragment() {
 
     // --- Contactos del teléfono ---
 
-    private data class ContactoAgenda(val nombre: String, val numero: String)
+    private var dialogoContactos: androidx.appcompat.app.AlertDialog? = null
 
     /** Lee TODOS los contactos en segundo plano y los muestra en una lista. */
     private fun mostrarContactos() {
@@ -260,7 +261,7 @@ class FirstFragment : Fragment() {
     }
 
     /** Consulta la agenda (nombre + número), ordenada y sin duplicados. */
-    private fun leerTodosLosContactos(): List<ContactoAgenda> {
+    private fun leerTodosLosContactos(): List<ContactosAdapter.Contacto> {
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
@@ -268,30 +269,42 @@ class FirstFragment : Fragment() {
         )
         val orden = "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE NOCASE ASC"
         val vistos = HashSet<String>()
-        val lista = ArrayList<ContactoAgenda>()
+        val lista = ArrayList<ContactosAdapter.Contacto>()
         requireContext().contentResolver.query(uri, projection, null, null, orden)?.use { c ->
             while (c.moveToNext()) {
                 val nombre = c.getString(0) ?: continue
                 val numero = c.getString(1) ?: continue
                 // Evita repetir el mismo nombre+número (varias cuentas sincronizadas).
                 val clave = "$nombre|${numero.filter { it.isDigit() }}"
-                if (vistos.add(clave)) lista.add(ContactoAgenda(nombre, numero))
+                if (vistos.add(clave)) lista.add(ContactosAdapter.Contacto(nombre, numero))
             }
         }
         return lista
     }
 
-    /** Diálogo con la lista de contactos; al tocar uno, llama a ese contacto. */
-    private fun mostrarDialogoContactos(contactos: List<ContactoAgenda>) {
-        val items = contactos.map { "${it.nombre}\n${it.numero}" }.toTypedArray()
-        MaterialAlertDialogBuilder(requireContext())
+    /** Diálogo con lista profesional (buscador + avatares); al tocar uno, llama. */
+    private fun mostrarDialogoContactos(contactos: List<ContactosAdapter.Contacto>) {
+        val vista = com.example.erikpy.databinding.DialogContactosBinding.inflate(layoutInflater)
+        val adapter = ContactosAdapter(contactos) { c ->
+            mostrar("Llamando a ${c.nombre}...")
+            llamarContacto(c.numero)
+            dialogoContactos?.dismiss()
+        }
+        vista.recyclerContactos.layoutManager =
+            androidx.recyclerview.widget.LinearLayoutManager(requireContext())
+        vista.recyclerContactos.adapter = adapter
+
+        vista.inputBuscar.addTextChangedListener { texto ->
+            val quedan = adapter.filtrar(texto?.toString() ?: "")
+            vista.textVacio.visibility = if (quedan == 0) View.VISIBLE else View.GONE
+            vista.recyclerContactos.visibility = if (quedan == 0) View.GONE else View.VISIBLE
+        }
+
+        dialogoContactos = MaterialAlertDialogBuilder(requireContext())
             .setTitle("Contactos (${contactos.size})")
-            .setItems(items) { _, which ->
-                val c = contactos[which]
-                mostrar("Llamando a ${c.nombre}...")
-                llamarContacto(c.numero)
-            }
+            .setView(vista.root)
             .setPositiveButton("Cerrar", null)
+            .setOnDismissListener { dialogoContactos = null }
             .show()
     }
 
