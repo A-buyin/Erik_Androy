@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.speech.RecognizerIntent
+import android.telecom.TelecomManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.view.LayoutInflater
@@ -280,22 +281,39 @@ class FirstFragment : Fragment() {
         return lista
     }
 
-    /** Diálogo con la lista de contactos; al tocar uno abre el marcador. */
+    /** Diálogo con la lista de contactos; al tocar uno, llama a ese contacto. */
     private fun mostrarDialogoContactos(contactos: List<ContactoAgenda>) {
         val items = contactos.map { "${it.nombre}\n${it.numero}" }.toTypedArray()
         MaterialAlertDialogBuilder(requireContext())
             .setTitle("Contactos (${contactos.size})")
             .setItems(items) { _, which ->
                 val c = contactos[which]
-                // Abre el marcador con el número (sin llamar automáticamente).
-                try {
-                    startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${c.numero}")))
-                } catch (e: Exception) {
-                    respond("No pude abrir el marcador, Ariel.")
-                }
+                mostrar("Llamando a ${c.nombre}...")
+                llamarContacto(c.numero)
             }
             .setPositiveButton("Cerrar", null)
             .show()
+    }
+
+    /** Realiza la llamada al número dado (igual que CommandHandler.placeCall). */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun llamarContacto(numero: String) {
+        if (!hasPermission(Manifest.permission.CALL_PHONE)) {
+            respond("No tengo permiso para llamar, Ariel.")
+            return
+        }
+        val uri = Uri.fromParts("tel", numero, null)
+        val tm = requireContext().getSystemService(TelecomManager::class.java)
+        try {
+            tm?.placeCall(uri, null)
+        } catch (e: Exception) {
+            // Respaldo: intent de llamada con la app en primer plano.
+            try {
+                startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$numero")))
+            } catch (e2: Exception) {
+                respond("No pude iniciar la llamada, Ariel.")
+            }
+        }
     }
 
     // --- Respuesta por voz / pantalla ---
