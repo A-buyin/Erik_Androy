@@ -183,6 +183,46 @@ else:
     _auth = "sin auth"
 print(f"Ollama: modelo '{OLLAMA_MODEL}' en {_destino} ({_auth})")
 
+
+# Configuración del servidor de VOZ CLONADA (TTS con tu propia voz).
+# Igual que Ollama: variables de entorno > errik_config.json > valores por defecto.
+# Si no defines auth propia para la voz, reutiliza la del proxy de Ollama (mismo VPS).
+def _cargar_config_voz():
+    cfg = {
+        "voz_url": "",          # ej: https://tu-vps.dominio/tts  (vacío = desactivado)
+        "voz_user": "",
+        "voz_password": "",
+        "voz_api_key": "",
+    }
+    archivo = BASE_DIR / "errik_config.json"
+    if archivo.exists():
+        try:
+            datos = json.loads(archivo.read_text(encoding="utf-8"))
+            for clave in cfg:
+                if datos.get(clave):
+                    cfg[clave] = datos[clave]
+        except Exception:
+            pass  # ya se avisó al cargar la config de Ollama
+    cfg["voz_url"] = os.environ.get("VOZ_URL", cfg["voz_url"])
+    cfg["voz_user"] = os.environ.get("VOZ_USER", cfg["voz_user"])
+    cfg["voz_password"] = os.environ.get("VOZ_PASSWORD", cfg["voz_password"])
+    cfg["voz_api_key"] = os.environ.get("VOZ_API_KEY", cfg["voz_api_key"])
+    # Sin auth propia -> usa la misma que Ollama (Caddy del VPS).
+    if not cfg["voz_user"] and not cfg["voz_api_key"]:
+        cfg["voz_user"] = OLLAMA_USER
+        cfg["voz_password"] = OLLAMA_PASSWORD
+        cfg["voz_api_key"] = OLLAMA_API_KEY
+    return cfg
+
+
+_CFG_VOZ = _cargar_config_voz()
+VOZ_URL = _CFG_VOZ["voz_url"]
+VOZ_USER = _CFG_VOZ["voz_user"]
+VOZ_PASSWORD = _CFG_VOZ["voz_password"]
+VOZ_API_KEY = _CFG_VOZ["voz_api_key"]
+if VOZ_URL:
+    print(f"Voz clonada: activada ({VOZ_URL})")
+
 TEXTO_AYUDA = """COMANDOS DISPONIBLES
 
 (Los comandos toleran acentos, mayusculas y errores tipicos de la voz.)
@@ -222,7 +262,11 @@ SYSTEM_PROMPT_ERIK = """Eres Erik, el asistente personal de Ariel. Nunca digas q
 Tono amable, profesional y muy conciso. Dirígete siempre al usuario como "Ariel".
 Responde en 1 o 2 frases, sin listas ni markdown, porque tu respuesta se lee en voz alta.
 
-Cuando Ariel te pida una ACCIÓN que puedas ejecutar, confírmala en lenguaje natural y AÑADE AL FINAL,
+Puedes responder CUALQUIER pregunta o conversación de Ariel usando tu propio conocimiento:
+cultura general, dudas, consejos, cálculos, definiciones, ideas, recomendaciones, etc.
+Responde siempre de forma útil y directa. Nunca digas que "solo ejecutas tareas".
+
+Además, cuando Ariel te pida una ACCIÓN que puedas ejecutar, confírmala en lenguaje natural y AÑADE AL FINAL,
 en una línea aparte, un bloque JSON (un array) con la acción, para que la aplicación la ejecute.
 
 Acciones disponibles y su formato EXACTO:
@@ -232,7 +276,7 @@ Acciones disponibles y su formato EXACTO:
 - Leer el último SMS:    [{"accion":"leer_mensaje"}]
 
 Reglas del JSON:
-- Incluye el bloque SOLO si Ariel pide una de esas acciones. Si es una pregunta normal, responde sin JSON.
+- Incluye el bloque SOLO si Ariel pide una de esas acciones. Si es una pregunta o charla normal, responde SIN JSON.
 - El JSON va SIEMPRE al final, en su propia línea, y nada después de él.
 - Usa exactamente esos nombres de campo. No inventes otras acciones.
 
@@ -246,8 +290,12 @@ Ariel: "marca al 3005557788"  ->  Enseguida, Ariel. Marcando ese número.
 Ariel: "cuelga"  ->  Hecho, Ariel.
 [{"accion":"colgar"}]
 
-Si no comprendes la instrucción, di exactamente: "Lo siento Ariel, no comprendí la instrucción. ¿Podrías repetirla?" y no pongas JSON.
-Trata la información de contactos con total confidencialidad. Solo ejecutas tareas; no expliques cómo funcionas."""
+Ariel: "¿cuál es la capital de Francia?"  ->  La capital de Francia es París, Ariel.
+
+Ariel: "recomiéndame algo para dormir mejor"  ->  Prueba a evitar pantallas una hora antes y mantén un horario fijo, Ariel.
+
+Solo si de verdad NO entendiste lo que Ariel dijo (audio confuso o cortado), pídele con amabilidad que lo repita.
+Trata la información de contactos con total confidencialidad."""
 
 
 def consultar_ollama(prompt, system=None):
@@ -500,11 +548,81 @@ _PATRON_SALUDO = re.compile(r"^\s*(?:(?:hola|ola|oye|hey|ey)\s+)?(?:erik|eric|er
 _PATRON_COLGAR = re.compile(r"\bcuelg\w*\b|\bcolg\w*\b|\bcort\w*\s+la\s+llamad\w*")
 
 
+def _duracion_wav(ruta):
+    """Duración en segundos de un WAV (para esperar a que termine de sonar)."""
+    try:
+        import wave
+        with wave.open(ruta, "rb") as w:
+            return w.getnframes() / float(w.getframerate() or 1)
+    except Exception:
+        return 3.0
+
+
+def _reproducir_audio(ruta):
+    """Reproduce un WAV de forma bloqueante. Devuelve True si lo consiguió."""
+    # Windows (entorno de desarrollo): winsound reproduce WAV y bloquea.
+    if os.name == "nt":
+        try:
+            import winsound
+            winsound.PlaySound(ruta, winsound.SND_FILENAME)
+            return True
+        except Exception:
+            return False
+    # Android/Linux: reproductor bloqueante si existe (mpv/ffplay); si no,
+    # termux-media-player (asíncrono) y esperamos la duración del audio.
+    for repro in (["mpv", "--no-video", "--really-quiet", ruta],
+                  ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", ruta]):
+        if shutil.which(repro[0]):
+            try:
+                subprocess.run(repro, check=False)
+                return True
+            except Exception:
+                pass
+    if shutil.which("termux-media-player"):
+        try:
+            subprocess.run(["termux-media-player", "play", ruta], check=False)
+            time.sleep(_duracion_wav(ruta) + 0.3)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _hablar_con_mi_voz(texto):
+    """Pide al servidor TTS del VPS que sintetice `texto` con tu voz clonada
+    y lo reproduce. Devuelve True si sonó; False para usar el respaldo."""
+    try:
+        headers = {}
+        auth = None
+        if VOZ_USER:
+            auth = (VOZ_USER, VOZ_PASSWORD)
+        elif VOZ_API_KEY:
+            headers["Authorization"] = f"Bearer {VOZ_API_KEY}"
+        r = requests.post(VOZ_URL, json={"text": texto},
+                          headers=headers, auth=auth, timeout=60)
+        r.raise_for_status()
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(r.content)
+            ruta = f.name
+        try:
+            return _reproducir_audio(ruta)
+        finally:
+            try:
+                os.remove(ruta)
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"(voz clonada no disponible, uso el TTS del sistema: {e})")
+        return False
+
+
 def hablar(texto):
     print(f"Errik: {texto}")
-    # Solo intenta TTS si Termux está disponible (Android). Usa subprocess para
+    # 1) Si hay servidor de voz clonada configurado, intenta hablar con TU voz.
+    if VOZ_URL and _hablar_con_mi_voz(texto):
+        return
+    # 2) Respaldo: TTS del sistema Android (voz sintética). Usa subprocess para
     # evitar problemas de shell/comillas dentro del texto.
-    import shutil
     if shutil.which("termux-tts-speak"):
         try:
             subprocess.run(["termux-tts-speak", texto], check=False)

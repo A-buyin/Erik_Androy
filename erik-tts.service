@@ -1,0 +1,61 @@
+# Servicio systemd para el servidor de VOZ CLONADA de Erik (XTTS-v2).
+# Se instala en el VPS (NO en el teléfono).
+#
+# Configurado para: usuario root, ruta /root/ollama.
+#
+# ── Instalación ─────────────────────────────────────────────────────────────
+#   1) Coloca servidor_tts.py y mi_voz.wav en /root/ollama/
+#   2) Crea un entorno virtual e instala dependencias:
+#        cd /root/ollama
+#        python3 -m venv venv
+#        ./venv/bin/pip install --upgrade pip
+#        ./venv/bin/pip install coqui-tts fastapi "uvicorn[standard]"
+#   3) (Opcional) Ajusta los valores en el archivo de entorno:
+#        nano /etc/erik-tts.env     # ver plantilla más abajo
+#   4) Copia este archivo y arranca el servicio:
+#        cp erik-tts.service /etc/systemd/system/
+#        systemctl daemon-reload
+#        systemctl enable --now erik-tts
+#   5) Comprobar:
+#        systemctl status erik-tts
+#        journalctl -u erik-tts -f          # ver logs (útil la 1ª vez: descarga modelo)
+#        curl http://localhost:5002/salud
+#
+# ── Plantilla de /etc/erik-tts.env ──────────────────────────────────────────
+#   VOZ_SAMPLE=/root/ollama/mi_voz.wav
+#   VOZ_IDIOMA=es
+#   # VOZ_MODELO=tts_models/multilingual/multi-dataset/xtts_v2   # (por defecto)
+#   # COQUI_TOS_AGREED=1   # acepta la licencia XTTS sin prompt interactivo
+# ─────────────────────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Erik TTS - servidor de voz clonada (XTTS-v2)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/ollama
+
+# Acepta la licencia del modelo XTTS de forma no interactiva (evita que se cuelgue
+# esperando confirmación la primera vez). El archivo .env puede sobrescribirlo.
+Environment=COQUI_TOS_AGREED=1
+EnvironmentFile=-/etc/erik-tts.env
+
+# Escucha solo en localhost: Caddy hace de proxy con auth hacia fuera.
+ExecStart=/root/ollama/venv/bin/uvicorn servidor_tts:app --host 127.0.0.1 --port 5002
+
+# La 1ª vez descarga el modelo (~2 GB); dale margen antes de considerarlo fallido.
+TimeoutStartSec=600
+Restart=on-failure
+RestartSec=5
+
+# Endurecimiento básico.
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
