@@ -1,6 +1,22 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
 }
+
+// Config de Ollama leída de local.properties (NO se versiona: está en .gitignore).
+// Añade allí:
+//   ollama.url=https://api.blatcode.com/api/generate
+//   ollama.model=qwen2.5-coder:7b
+//   ollama.user=ariel
+//   ollama.password=TU_CONTRASEÑA
+val ollamaProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) FileInputStream(f).use { load(it) }
+}
+fun ollamaProp(key: String, def: String = ""): String =
+    (ollamaProps.getProperty(key) ?: def)
 
 android {
     namespace = "com.example.erikpy"
@@ -18,6 +34,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Credenciales del VPS inyectadas en BuildConfig (desde local.properties).
+        buildConfigField("String", "OLLAMA_URL", "\"${ollamaProp("ollama.url")}\"")
+        buildConfigField("String", "OLLAMA_MODEL", "\"${ollamaProp("ollama.model", "qwen2.5-coder:7b")}\"")
+        buildConfigField("String", "OLLAMA_USER", "\"${ollamaProp("ollama.user")}\"")
+        buildConfigField("String", "OLLAMA_PASSWORD", "\"${ollamaProp("ollama.password")}\"")
     }
 
     buildTypes {
@@ -35,6 +57,7 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 

@@ -14,10 +14,18 @@ import android.speech.tts.TextToSpeech
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.util.Base64
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.erikpy.databinding.FragmentFirstBinding
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 class FirstFragment : Fragment() {
@@ -209,8 +217,7 @@ class FirstFragment : Fragment() {
             return
         }
 
-        // Comandos solo de la versión PC/Termux (IDS y LLM local): se reconocen
-        // igual que en Erik.py, pero se informa que no aplican en la app móvil.
+        // Los modelos IDS (deep/escaneo) solo existen en la versión PC/Termux.
         when {
             patronDeep1.containsMatchIn(cmdNorm) ->
                 respond("El modelo Deep 1 solo está disponible en la versión de PC/Termux.")
@@ -218,10 +225,150 @@ class FirstFragment : Fragment() {
                 respond("El modelo Deep 2 solo está disponible en la versión de PC/Termux.")
             patronEscaneo.containsMatchIn(cmdNorm) ->
                 respond("El escaneo IDS solo está disponible en la versión de PC/Termux.")
-            patronOllama.containsMatchIn(cmdNorm) ->
-                respond("Ollama solo está disponible en la versión de PC/Termux.")
+            patronOllama.containsMatchIn(cmdNorm) -> {
+                // "pregunta a ollama X" -> se manda X al modelo del VPS.
+                val m = patronOllama.find(cmdNorm)
+                val pregunta = m?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                askErik(if (pregunta.isNotEmpty()) pregunta else command)
+            }
             else ->
-                respond("Comando no reconocido. Prueba: llama a [nombre], último mensaje o ayuda")
+                // Todo lo demás: lo interpreta el modelo del VPS (cerebro de Erik),
+                // que puede responder o devolver una acción JSON (llamar, etc.).
+                askErik(command)
+        }
+    }
+
+    // --- Cerebro de Erik: modelo Ollama del VPS con acciones en JSON ---
+
+    private val systemPromptErik = """
+Eres Erik, el asistente personal de Ariel. Nunca digas que eres un modelo de lenguaje: eres Erik.
+Tono amable, profesional y muy conciso. Dirígete siempre al usuario como "Ariel".
+Responde en 1 o 2 frases, sin listas ni markdown, porque tu respuesta se lee en voz alta.
+
+Cuando Ariel te pida una ACCIÓN que puedas ejecutar, confírmala en lenguaje natural y AÑADE AL FINAL,
+en una línea aparte, un bloque JSON (un array) con la acción, para que la aplicación la ejecute.
+
+Acciones disponibles y su formato EXACTO:
+- Llamar a un contacto:  [{"accion":"llamar","contacto":"NOMBRE"}]
+- Llamar a un número:    [{"accion":"llamar","numero":"3001234567"}]
+- Colgar la llamada:     [{"accion":"colgar"}]
+- Leer el último SMS:    [{"accion":"leer_mensaje"}]
+
+Reglas del JSON:
+- Incluye el bloque SOLO si Ariel pide una de esas acciones. Si es una pregunta normal, responde sin JSON.
+- El JSON va SIEMPRE al final, en su propia línea, y nada después de él.
+- Usa exactamente esos nombres de campo. No inventes otras acciones.
+
+Si no comprendes la instrucción, di exactamente: "Lo siento Ariel, no comprendí la instrucción. ¿Podrías repetirla?" y no pongas JSON.
+Trata la información de contactos con total confidencialidad. Solo ejecutas tareas; no expliques cómo funcionas.
+""".trim()
+
+    /** Manda el comando al modelo del VPS en segundo plano, locuta la respuesta
+     *  y ejecuta las acciones JSON que devuelva. */
+    private fun askErik(command: String) {
+        if (BuildConfig.OLLAMA_URL.isBlank()) {
+            respond("El asistente con IA no está configurado, Ariel. Falta la URL del modelo en local.properties.")
+            return
+        }
+        respond("Un momento, Ariel...")
+        Thread {
+            val respuesta = try {
+                callOllama(command)
+            } catch (e: Exception) {
+                null
+            }
+            val act = activity ?: return@Thread
+            act.runOnUiThread {
+                if (!isAdded || _binding == null) return@runOnUiThread
+                if (respuesta == null) {
+                    respond("No pude consultar al asistente, Ariel. Revisa la conexión o el servidor.")
+                    return@runOnUiThread
+                }
+                val (texto, acciones) = extractActions(respuesta)
+                if (texto.isNotBlank()) respond(texto)
+                for (i in 0 until acciones.length()) {
+                    val a = acciones.optJSONObject(i) ?: continue
+                    executeAction(a)
+                }
+            }
+        }.start()
+    }
+
+    /** Llamada HTTP al endpoint /api/generate del VPS con Basic Auth. Devuelve
+     *  el texto del campo "response" o null si falla. Se ejecuta fuera del hilo UI. */
+    private fun callOllama(command: String): String? {
+        val body = JSONObject().apply {
+            put("model", BuildConfig.OLLAMA_MODEL)
+            put("prompt", command)
+            put("system", systemPromptErik)
+            put("stream", false)
+            put("keep_alive", "30m")
+            put("options", JSONObject().put("num_predict", 200))
+        }.toString()
+
+        val url = URL(BuildConfig.OLLAMA_URL)
+        val conn = url.openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 15000
+            conn.readTimeout = 120000   // el primer arranque del modelo puede tardar ~90s
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (BuildConfig.OLLAMA_USER.isNotBlank()) {
+                val cred = "${BuildConfig.OLLAMA_USER}:${BuildConfig.OLLAMA_PASSWORD}"
+                val basic = "Basic " + Base64.encodeToString(cred.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                conn.setRequestProperty("Authorization", basic)
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+
+            if (conn.responseCode !in 200..299) return null
+            val texto = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { it.readText() }
+            return JSONObject(texto).optString("response").trim()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** Separa la respuesta del modelo en (texto_para_voz, acciones JSON). */
+    private fun extractActions(respuesta: String): Pair<String, JSONArray> {
+        val m = Regex("\\[\\s*\\{.*?\\}\\s*\\]", RegexOption.DOT_MATCHES_ALL).find(respuesta)
+        if (m != null) {
+            try {
+                val arr = JSONArray(m.value)
+                val texto = respuesta.replace(m.value, "").trim()
+                return Pair(texto, arr)
+            } catch (e: Exception) {
+                // JSON mal formado: se ignora y se lee todo como texto.
+            }
+        }
+        return Pair(respuesta.trim(), JSONArray())
+    }
+
+    /** Ejecuta una acción devuelta por el modelo (llamar, colgar, leer_mensaje). */
+    private fun executeAction(action: JSONObject) {
+        when (action.optString("accion").lowercase(Locale.ROOT).trim()) {
+            "llamar" -> {
+                val numero = action.optString("numero").trim()
+                val contacto = action.optString("contacto").trim()
+                if (numero.isNotEmpty() && numero.matches(Regex("^[+0-9 \\-]+$"))) {
+                    tryCall(numero.replace(" ", ""))
+                } else if (contacto.isNotEmpty()) {
+                    val c = lookupContact(contacto)
+                    if (c != null) {
+                        respond("Llamando a ${c.nombre}, Ariel.")
+                        tryCall(c.numero)
+                    } else {
+                        respond("No encontré a $contacto en tus contactos, Ariel.")
+                    }
+                } else {
+                    respond("No entendí a quién llamar, Ariel.")
+                }
+            }
+            "colgar" ->
+                // Colgar por programa requiere ser el marcador por defecto; no se soporta.
+                respond("Colgar la llamada no está disponible en esta versión, Ariel.")
+            "leer_mensaje", "leer_sms", "ultimo_mensaje" ->
+                readLastSms()
         }
     }
 

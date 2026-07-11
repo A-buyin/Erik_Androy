@@ -1,0 +1,11 @@
+# PLANTILLA. Copia el contenido de Ollama a tu 'local.properties' real.
+# 'local.properties' está en .gitignore y NO se sube al repo (por eso las
+# credenciales van aquí y no en el código).
+#
+# Android Studio ya genera automáticamente la línea sdk.dir. Solo tienes que
+# AÑADIR estas 4 líneas de Ollama con tus datos reales:
+
+ollama.url=https://api.blatcode.com/api/generate
+ollama.model=qwen2.5-coder:7b
+ollama.user=ariel
+ollama.password=TU_CONTRASEÑA

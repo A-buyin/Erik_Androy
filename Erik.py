@@ -1,3 +1,4 @@
+
 import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -215,7 +216,41 @@ TEXTO_AYUDA = """COMANDOS DISPONIBLES
   • clear  /  cls  /  limpiar   -> limpia la pantalla
   • salir  /  apagate           -> cierra Errik"""
 
-def consultar_ollama(prompt):
+# Personalidad de Erik + protocolo de acciones en JSON para que la app/Erik las
+# ejecute. El modelo confirma en lenguaje natural y añade al final un bloque JSON.
+SYSTEM_PROMPT_ERIK = """Eres Erik, el asistente personal de Ariel. Nunca digas que eres un modelo de lenguaje: eres Erik.
+Tono amable, profesional y muy conciso. Dirígete siempre al usuario como "Ariel".
+Responde en 1 o 2 frases, sin listas ni markdown, porque tu respuesta se lee en voz alta.
+
+Cuando Ariel te pida una ACCIÓN que puedas ejecutar, confírmala en lenguaje natural y AÑADE AL FINAL,
+en una línea aparte, un bloque JSON (un array) con la acción, para que la aplicación la ejecute.
+
+Acciones disponibles y su formato EXACTO:
+- Llamar a un contacto:  [{"accion":"llamar","contacto":"NOMBRE"}]
+- Llamar a un número:    [{"accion":"llamar","numero":"3001234567"}]
+- Colgar la llamada:     [{"accion":"colgar"}]
+- Leer el último SMS:    [{"accion":"leer_mensaje"}]
+
+Reglas del JSON:
+- Incluye el bloque SOLO si Ariel pide una de esas acciones. Si es una pregunta normal, responde sin JSON.
+- El JSON va SIEMPRE al final, en su propia línea, y nada después de él.
+- Usa exactamente esos nombres de campo. No inventes otras acciones.
+
+Ejemplos:
+Ariel: "llama a Hilda"  ->  Claro, Ariel. Llamando a Hilda.
+[{"accion":"llamar","contacto":"Hilda"}]
+
+Ariel: "marca al 3005557788"  ->  Enseguida, Ariel. Marcando ese número.
+[{"accion":"llamar","numero":"3005557788"}]
+
+Ariel: "cuelga"  ->  Hecho, Ariel.
+[{"accion":"colgar"}]
+
+Si no comprendes la instrucción, di exactamente: "Lo siento Ariel, no comprendí la instrucción. ¿Podrías repetirla?" y no pongas JSON.
+Trata la información de contactos con total confidencialidad. Solo ejecutas tareas; no expliques cómo funcionas."""
+
+
+def consultar_ollama(prompt, system=None):
     try:
         payload = {
             "model": OLLAMA_MODEL,
@@ -227,6 +262,8 @@ def consultar_ollama(prompt):
             # Respuestas cortas: se leen en voz alta, no hace falta un ensayo.
             "options": {"num_predict": 200},
         }
+        if system:
+            payload["system"] = system
         headers = {}
         auth = None
         if OLLAMA_USER:
@@ -248,20 +285,98 @@ def consultar_ollama(prompt):
         return f"No pude consultar Ollama. Detalle: {e}"
 
 
-def consultar_ollama_como_errik(texto):
-    """Usa el modelo del VPS como el 'cerebro' de Errik para responder libremente.
+# Bloque JSON de acción que el modelo añade al final de su respuesta.
+_PATRON_JSON_ACCION = re.compile(r"\[\s*\{.*?\}\s*\]", re.DOTALL)
 
-    Envuelve la pregunta con una instrucción para que la respuesta sea breve y
-    apta para leerse en voz alta (sin listas ni markdown).
+
+def extraer_acciones(respuesta):
+    """Separa la respuesta del modelo en (texto_para_voz, lista_de_acciones).
+
+    El modelo, según SYSTEM_PROMPT_ERIK, puede terminar con un array JSON como
+    [{"accion":"llamar","contacto":"Hilda"}]. Lo extraemos y lo quitamos del
+    texto que se lee en voz alta.
     """
-    prompt = (
-        "Eres Errik, un asistente de voz en español. Responde de forma breve, "
-        "clara y natural, en 2 o 3 frases como máximo, sin listas ni markdown, "
-        "porque tu respuesta se leerá en voz alta. "
-        "Si no sabes algo, dilo con sencillez. "
-        "Pregunta del usuario: " + texto
-    )
-    return consultar_ollama(prompt)
+    if not respuesta:
+        return "", []
+    acciones = []
+    texto = respuesta
+    m = _PATRON_JSON_ACCION.search(respuesta)
+    if m:
+        bloque = m.group(0)
+        try:
+            data = json.loads(bloque)
+            if isinstance(data, list):
+                acciones = [a for a in data if isinstance(a, dict) and a.get("accion")]
+        except Exception:
+            acciones = []
+        if acciones:
+            texto = respuesta.replace(bloque, "").strip()
+    return texto, acciones
+
+
+def ejecutar_accion(accion):
+    """Ejecuta una acción devuelta por el modelo. Devuelve True si hizo algo."""
+    tipo = (accion.get("accion") or "").lower().strip()
+
+    if tipo == "llamar":
+        numero = (accion.get("numero") or "").strip()
+        contacto = (accion.get("contacto") or "").strip()
+        if numero and es_numero_telefono(numero):
+            num = re.sub(r"[\s\-()\.]", "", numero)
+            hablar(f"Marcando al número {num}, Ariel.")
+            subprocess.run(['termux-telephony-call', num])
+            return True
+        if contacto:
+            encontrado = buscar_contacto(contacto)
+            if encontrado:
+                nombre, num = encontrado
+                hablar(f"Llamando a {nombre}, Ariel.")
+                subprocess.run(['termux-telephony-call', num])
+            else:
+                hablar(f"No encontré a {contacto} en tus contactos, Ariel.")
+            return True
+        hablar("No entendí a quién llamar, Ariel.")
+        return True
+
+    if tipo == "colgar":
+        # termux-api no expone un comando fiable para colgar; se informa con honestidad.
+        hablar("Colgar la llamada no está disponible en esta versión de Termux, Ariel.")
+        return True
+
+    if tipo in ("leer_mensaje", "leer_sms", "ultimo_mensaje"):
+        leer_ultimo_mensaje()
+        return True
+
+    return False
+
+
+def interpretar_y_ejecutar(texto):
+    """Cerebro de Erik: manda el texto al modelo con la personalidad Erik,
+    locuta su respuesta y ejecuta las acciones JSON que devuelva."""
+    respuesta = consultar_ollama(texto, system=SYSTEM_PROMPT_ERIK)
+    texto_voz, acciones = extraer_acciones(respuesta)
+    if texto_voz:
+        hablar(texto_voz)
+    for accion in acciones:
+        try:
+            ejecutar_accion(accion)
+        except Exception as e:
+            print(f"Advertencia al ejecutar acción {accion}: {e}")
+
+
+def leer_ultimo_mensaje():
+    """Lee por voz el último SMS recibido (requiere Termux)."""
+    try:
+        sms_raw = subprocess.check_output(['termux-sms-list', '-l', '1'])
+        mensajes = json.loads(sms_raw)
+    except Exception:
+        hablar("No pude acceder a los mensajes, Ariel.")
+        return
+    if mensajes:
+        m = mensajes[0]
+        hablar(f"El último mensaje es de {m.get('number','desconocido')} y dice: {m.get('body','')}")
+    else:
+        hablar("No hay mensajes nuevos en el registro, Ariel.")
 
 # Detección tolerante de la orden de llamada.
 # Acepta: llama / llamar / llamada / marca / marcar / telefonea(r),
@@ -608,13 +723,7 @@ def procesar(comando):
     # ORDEN DE LEER MENSAJES
     elif _PATRON_ULTIMO_MSJ.search(cmd_norm):
         hablar("Consultando el despacho de mensajes...")
-        sms_raw = subprocess.check_output(['termux-sms-list', '-l', '1'])
-        mensajes = json.loads(sms_raw)
-        if mensajes:
-            m = mensajes[0]
-            hablar(f"El último mensaje es de {m['number']} y dice: {m['body']}")
-        else:
-            hablar("No hay mensajes nuevos en el registro.")
+        leer_ultimo_mensaje()
 
     # ORDEN DEEP 1 (Keras/TensorFlow) sobre la red real
     elif _PATRON_DEEP1.search(cmd_norm):
@@ -678,14 +787,14 @@ def procesar(comando):
 
     else:
         # Todo lo que no sea un comando específico se lo pasamos al modelo del VPS:
-        # Ollama es la herramienta-cerebro fija de Errik para responder libremente.
+        # Erik interpreta la intención con IA y ejecuta las acciones (llamar, etc.)
+        # o responde la pregunta. Ollama es la herramienta-cerebro fija de Erik.
         texto = comando.strip()
         if len(texto) >= 3:
-            hablar("Déjame pensarlo un momento...")
-            respuesta_llm = consultar_ollama_como_errik(texto)
-            hablar(respuesta_llm)
+            hablar("Un momento, Ariel...")
+            interpretar_y_ejecutar(texto)
         else:
-            hablar('No te entendí. Di "ayuda" para escuchar la lista de comandos.')
+            hablar('No te entendí, Ariel. Di "ayuda" para escuchar la lista de comandos.')
 
     return True
 
