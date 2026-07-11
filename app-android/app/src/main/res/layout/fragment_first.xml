@@ -113,6 +113,16 @@
                     app:cornerRadius="14dp"
                     app:icon="@drawable/ic_mic"
                     app:iconGravity="textStart" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_mis_grabaciones"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Mis grabaciones de voz (reproducir / borrar)"
+                    app:cornerRadius="14dp"
+                    app:iconGravity="textStart" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -167,6 +167,8 @@ class FirstFragment : Fragment() {
             else requestMicPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
 
+        binding.buttonMisGrabaciones.setOnClickListener { mostrarGrabaciones() }
+
         // Interruptor de escucha permanente ("hola Erik").
         binding.switchWake.isChecked = false
         binding.switchWake.setOnCheckedChangeListener { _, isChecked ->
@@ -401,6 +403,72 @@ class FirstFragment : Fragment() {
         }
     }
 
+    private var reproductor: android.media.MediaPlayer? = null
+
+    /** Devuelve las grabaciones de voz guardadas, de más reciente a más antigua. */
+    private fun listarGrabaciones(): List<File> {
+        val dir = requireContext().getExternalFilesDir(null) ?: return emptyList()
+        return (dir.listFiles { f -> f.name.startsWith("mi_voz_") && f.name.endsWith(".wav") }
+            ?: emptyArray()).sortedByDescending { it.lastModified() }
+    }
+
+    /** Lista las grabaciones; al tocar una, ofrece reproducir o borrar. */
+    private fun mostrarGrabaciones() {
+        val grabaciones = listarGrabaciones()
+        if (grabaciones.isEmpty()) {
+            respond("Aún no tienes grabaciones de voz, Ariel. Usa \"Grabar mi voz\" primero.")
+            return
+        }
+        val items = grabaciones.map { "${it.name}  (${it.length() / 1024} KB)" }.toTypedArray()
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Mis grabaciones (${grabaciones.size})")
+            .setItems(items) { _, which -> accionesGrabacion(grabaciones[which]) }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+
+    /** Menú para una grabación: reproducir o borrar. */
+    private fun accionesGrabacion(archivo: File) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(archivo.name)
+            .setItems(arrayOf("▶  Reproducir", "🗑  Borrar")) { _, opcion ->
+                if (opcion == 0) reproducirGrabacion(archivo) else confirmarBorrado(archivo)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun reproducirGrabacion(archivo: File) {
+        try {
+            reproductor?.release()
+            reproductor = android.media.MediaPlayer().apply {
+                setDataSource(archivo.absolutePath)
+                setOnCompletionListener { it.release(); if (reproductor === it) reproductor = null }
+                prepare()
+                start()
+            }
+            mostrar("Reproduciendo ${archivo.name}...")
+        } catch (e: Exception) {
+            respond("No pude reproducir la grabación, Ariel.")
+        }
+    }
+
+    private fun confirmarBorrado(archivo: File) {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("¿Borrar grabación?")
+            .setMessage(archivo.name)
+            .setPositiveButton("Borrar") { _, _ ->
+                if (archivo.delete()) {
+                    respond("Grabación borrada, Ariel.")
+                    mostrarGrabaciones()
+                } else {
+                    respond("No pude borrar la grabación, Ariel.")
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
     // --- Respuesta por voz / pantalla ---
 
     private fun respond(text: String) {
@@ -432,6 +500,7 @@ class FirstFragment : Fragment() {
             handler.removeCallbacks(cronometro)
             grabador?.detener(); grabador = null
         }
+        reproductor?.release(); reproductor = null
         tts?.stop(); tts?.shutdown(); tts = null
         _binding = null
     }
