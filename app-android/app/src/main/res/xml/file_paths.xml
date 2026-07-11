@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Carpeta caché para la foto temporal del documento escaneado. -->
+    <cache-path name="documentos" path="." />
+</paths>

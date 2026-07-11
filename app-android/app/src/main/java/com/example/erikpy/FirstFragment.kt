@@ -130,6 +130,10 @@ class FirstFragment : Fragment() {
 
         binding.buttonVoice.setOnClickListener { startVoiceInput() }
 
+        binding.buttonTranslator.setOnClickListener {
+            startActivity(Intent(requireContext(), TranslatorActivity::class.java))
+        }
+
         // Interruptor de escucha permanente ("hola Erik").
         binding.switchWake.isChecked = false
         binding.switchWake.setOnCheckedChangeListener { _, isChecked ->

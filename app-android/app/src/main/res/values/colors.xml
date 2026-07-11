@@ -3,41 +3,41 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Marca Errik: azul océano + acento cian -->
-    <color name="brand_primary">#2563EB</color>
-    <color name="brand_primary_grad">#0EA5E9</color>
+    <!-- Marca Errik: violeta → rosa (degradado moderno) -->
+    <color name="brand_primary">#7C3AED</color>
+    <color name="brand_primary_grad">#EC4899</color>
     <color name="brand_on_primary">#FFFFFF</color>
-    <color name="brand_primary_container">#DBEAFE</color>
-    <color name="brand_on_primary_container">#0C2461</color>
+    <color name="brand_primary_container">#EDE9FE</color>
+    <color name="brand_on_primary_container">#2E1065</color>
 
-    <color name="brand_secondary">#06B6D4</color>
+    <color name="brand_secondary">#EC4899</color>
     <color name="brand_on_secondary">#FFFFFF</color>
-    <color name="brand_secondary_container">#CFFAFE</color>
-    <color name="brand_on_secondary_container">#083344</color>
+    <color name="brand_secondary_container">#FCE7F3</color>
+    <color name="brand_on_secondary_container">#500724</color>
 
-    <!-- Superficies claras -->
-    <color name="light_background">#F4F7FC</color>
+    <!-- Superficies claras (con un leve tinte lavanda) -->
+    <color name="light_background">#F7F5FC</color>
     <color name="light_surface">#FFFFFF</color>
-    <color name="light_on_surface">#0F1B2D</color>
-    <color name="light_surface_variant">#EAF0F9</color>
-    <color name="light_on_surface_variant">#48566B</color>
-    <color name="light_outline">#C7D5E5</color>
+    <color name="light_on_surface">#1E1B2E</color>
+    <color name="light_surface_variant">#F1ECFA</color>
+    <color name="light_on_surface_variant">#5B5470</color>
+    <color name="light_outline">#D8CFEA</color>
 
-    <!-- Superficies oscuras -->
-    <color name="dark_primary">#93C5FD</color>
-    <color name="dark_on_primary">#10275C</color>
-    <color name="dark_primary_container">#1E40AF</color>
-    <color name="dark_on_primary_container">#DBEAFE</color>
+    <!-- Superficies oscuras (ciruela oscuro) -->
+    <color name="dark_primary">#C4B5FD</color>
+    <color name="dark_on_primary">#2E1065</color>
+    <color name="dark_primary_container">#5B21B6</color>
+    <color name="dark_on_primary_container">#EDE9FE</color>
 
-    <color name="dark_secondary">#67E8F9</color>
-    <color name="dark_on_secondary">#083344</color>
-    <color name="dark_secondary_container">#155E75</color>
-    <color name="dark_on_secondary_container">#CFFAFE</color>
+    <color name="dark_secondary">#F9A8D4</color>
+    <color name="dark_on_secondary">#500724</color>
+    <color name="dark_secondary_container">#9D174D</color>
+    <color name="dark_on_secondary_container">#FCE7F3</color>
 
-    <color name="dark_background">#0A1120</color>
-    <color name="dark_surface">#111A2B</color>
-    <color name="dark_on_surface">#E3EBF6</color>
-    <color name="dark_surface_variant">#1B2637</color>
-    <color name="dark_on_surface_variant">#97A6BC</color>
-    <color name="dark_outline">#2E3D52</color>
+    <color name="dark_background">#120A1F</color>
+    <color name="dark_surface">#1A1128</color>
+    <color name="dark_on_surface">#ECE6F5</color>
+    <color name="dark_surface_variant">#261A38</color>
+    <color name="dark_on_surface_variant">#A99EC0</color>
+    <color name="dark_outline">#3D2E52</color>
 </resources>

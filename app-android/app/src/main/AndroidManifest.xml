@@ -35,6 +35,23 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TranslatorActivity"
+            android:exported="false"
+            android:label="Traductor de voz"
+            android:theme="@style/Theme.Erikpy" />
+
+        <!-- Proveedor para pasar la foto del documento a la cámara/OCR. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Servicio de escucha permanente de la palabra de activación. -->
         <service
             android:name=".WakeWordService"

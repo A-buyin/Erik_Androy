@@ -62,6 +62,10 @@ android {
 }
 
 dependencies {
+    // Traducción offline + OCR de documentos + identificación de idioma (ML Kit).
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation(libs.androidx.activity.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
