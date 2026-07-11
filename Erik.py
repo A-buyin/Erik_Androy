@@ -382,7 +382,8 @@ def leer_ultimo_mensaje():
 # Acepta: llama / llamar / llamada / marca / marcar / telefonea(r),
 # con o sin "a"/"al" (útil cuando Whisper se come la "a": "llama Juan").
 _PATRON_LLAMADA = re.compile(
-    r"^\s*(?:llama(?:r|da)?|lama|yama|marca(?:r)?|telefonea(?:r)?)\s+(?:al?\s+)?(.+)$",
+    # llam* cubre llama/llamar/llamada/llamando; marc* cubre marca/marcar/marcando.
+    r"^\s*(?:llam\w*|lama|yama|marc\w*|telefone\w*)\s+(?:al?\s+)?(.+)$",
     re.IGNORECASE,
 )
 
@@ -493,6 +494,10 @@ _PATRON_ULTIMO_MSJ = re.compile(r"\bultim\w*\s+(?:mensaje|mensajes|sms)")
 _PATRON_OLLAMA = re.compile(
     r"(?:pregunt\w*|consult\w*)\s+a\s+(?:o\s*llama|ollama|olama|oyama|llama)\b\s*(.*)$",
 )
+# Saludo de activación: "hola Erik", "oye Erik", o solo "Erik".
+_PATRON_SALUDO = re.compile(r"^\s*(?:(?:hola|ola|oye|hey|ey)\s+)?(?:erik|eric|erick|herik)\s*$")
+# Colgar la llamada.
+_PATRON_COLGAR = re.compile(r"\bcuelg\w*\b|\bcolg\w*\b|\bcort\w*\s+la\s+llamad\w*")
 
 
 def hablar(texto):
@@ -698,6 +703,16 @@ def procesar(comando):
     # LIMPIAR PANTALLA
     if cmd in ("clear", "cls", "limpiar", "limpia"):
         os.system("cls" if os.name == "nt" else "clear")
+        return True
+
+    # SALUDO DE ACTIVACIÓN ("hola Erik"). El bucle principal ya sigue escuchando.
+    if _PATRON_SALUDO.match(cmd_norm):
+        hablar("Hola Ariel, ¿en qué te puedo ayudar?")
+        return True
+
+    # COLGAR. En Termux/Android no hay API para colgar; se informa con honestidad.
+    if _PATRON_COLGAR.search(cmd_norm):
+        hablar("Colgar la llamada no está disponible en la versión de Termux, Ariel.")
         return True
 
     ollama_match = _PATRON_OLLAMA.search(cmd_norm)
