@@ -67,6 +67,8 @@ class DocumentoActivity : AppCompatActivity() {
 
     // Número de contenedor ISO: 4 letras + 7 dígitos (p.ej. EITU1814854).
     private val reContenedor = Regex("\\b([A-Z]{4})\\s?(\\d{7})\\b")
+    // Dirección EE.UU.: nº de calle + … + estado (2 letras) + código postal (5 dígitos).
+    private val reDireccion = Regex("\\b\\d{2,6}\\s+[A-Za-z0-9 .,'#/-]{3,70}?[A-Z]{2}\\s?\\d{5}\\b")
 
     // true si la imagen llegó por "Compartir con Erik": tras el OCR, extrae datos solo.
     private var autoExtraer = false
@@ -116,15 +118,21 @@ class DocumentoActivity : AppCompatActivity() {
         }
         estado("Extrayendo datos del documento…")
 
-        // 1) Contenedor por patrón exacto (4 letras + 7 dígitos): muy fiable, sin modelo.
-        val contenedorRegex = reContenedor.find(texto.uppercase())
+        // 1) Contenedor y dirección por patrón exacto: muy fiable, sin modelo.
+        val textoMayus = texto.uppercase()
+        val contenedorRegex = reContenedor.find(textoMayus)
             ?.let { "${it.groupValues[1]}${it.groupValues[2]}" }
+        val direccionRegex = reDireccion.find(textoMayus)?.value?.trim()
 
-        // 2) Dirección (y respaldo del contenedor) con el modelo del VPS.
+        // Si ya tengo ambos por patrón, ni consulto el modelo.
+        if (contenedorRegex != null && direccionRegex != null) {
+            mostrarDatos("Contenedor: $contenedorRegex\nDirección: $direccionRegex"); return
+        }
+        // 2) Lo que falte, con el modelo del VPS.
         if (BuildConfig.OLLAMA_URL.isBlank()) {
             mostrarDatos(
                 "Contenedor: ${contenedorRegex ?: "no encontrado"}\n" +
-                "Dirección: (necesito el asistente del VPS para leerla)"
+                "Dirección: ${direccionRegex ?: "(necesito el asistente del VPS)"}"
             ); return
         }
         val prompt = """
@@ -143,7 +151,7 @@ $texto
             val resp = try { consultarModelo(prompt) } catch (e: Exception) { null }
             runOnUiThread {
                 val contenedor = contenedorRegex ?: extraerCampo(resp, "Contenedor") ?: "no encontrado"
-                val direccion = extraerCampo(resp, "Dirección")
+                val direccion = direccionRegex ?: extraerCampo(resp, "Dirección")
                     ?: extraerCampo(resp, "Direccion") ?: "no encontrada"
                 mostrarDatos("Contenedor: $contenedor\nDirección: $direccion")
             }

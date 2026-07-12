@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Telephony
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -27,6 +28,9 @@ class DespachoExtractor(
 ) {
     private val ocr = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val reContenedor = Regex("\\b([A-Z]{4})\\s?(\\d{7})\\b")
+    // Dirección EE.UU.: número de calle + … + estado (2 letras) + código postal (5 dígitos).
+    // Ej: "9715 KLINGERMAN ST S EL MONTE CA 91733".
+    private val reDireccion = Regex("\\b\\d{2,6}\\s+[A-Za-z0-9 .,'#/-]{3,70}?[A-Z]{2}\\s?\\d{5}\\b")
     private val main = Handler(Looper.getMainLooper())
 
     private fun say(t: String) = main.post { speak(t) }
@@ -35,10 +39,14 @@ class DespachoExtractor(
     fun procesarUltimoDe(nombre: String, numero: String) {
         say("Buscando el último despacho de $nombre, Ariel...")
         Thread {
-            val uri = ultimaImagenMmsDe(numero)
+            val uri = try { ultimaImagenMmsDe(numero) } catch (e: Exception) {
+                android.util.Log.e("ErikVoz", "MMS falló: ${e.message}", e)
+                say("No pude leer los mensajes de $nombre, Ariel."); return@Thread
+            }
             if (uri == null) {
                 say("No encontré una foto reciente de $nombre en tus mensajes, Ariel."); return@Thread
             }
+            android.util.Log.i("ErikVoz", "Imagen MMS encontrada: $uri")
             main.post {
                 try {
                     val imagen = InputImage.fromFilePath(context, uri)
@@ -55,12 +63,19 @@ class DespachoExtractor(
     private fun onOcr(nombre: String, textoRaw: String) {
         val texto = textoRaw.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
         if (texto.isBlank()) { say("La foto de $nombre no tiene texto legible, Ariel."); return }
-        val contenedorRegex = reContenedor.find(texto.uppercase())
+        val textoMayus = texto.uppercase()
+        val contenedorRegex = reContenedor.find(textoMayus)
             ?.let { "${it.groupValues[1]}${it.groupValues[2]}" }
+        val direccionRegex = reDireccion.find(textoMayus)?.value?.trim()
+        // Si ya tengo ambos por patrón exacto, ni consulto el modelo (más rápido y fiable).
+        if (contenedorRegex != null && direccionRegex != null) {
+            say("Despacho de $nombre. Contenedor: $contenedorRegex. Dirección: $direccionRegex.")
+            return
+        }
         Thread {
             val resp = try { extraerConModelo(texto) } catch (e: Exception) { null }
             val contenedor = contenedorRegex ?: campo(resp, "Contenedor") ?: "no encontrado"
-            val direccion = campo(resp, "Dirección") ?: campo(resp, "Direccion") ?: "no encontrada"
+            val direccion = direccionRegex ?: campo(resp, "Dirección") ?: campo(resp, "Direccion") ?: "no encontrada"
             say("Despacho de $nombre. Contenedor: $contenedor. Dirección: $direccion.")
         }.start()
     }
@@ -68,13 +83,31 @@ class DespachoExtractor(
     // --- Búsqueda del MMS con imagen del número dado ---
 
     private fun ultimaImagenMmsDe(numero: String): Uri? {
+        // Vía rápida: el hilo de conversación de ese número (solo sus mensajes).
+        val threadId = try {
+            Telephony.Threads.getOrCreateThreadId(context, numero)
+        } catch (e: Exception) { -1L }
+        if (threadId >= 0) {
+            context.contentResolver.query(
+                Uri.parse("content://mms"), arrayOf("_id"),
+                "thread_id=? AND msg_box=1", arrayOf(threadId.toString()), "date DESC"
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val mmsId = c.getString(0) ?: continue
+                    val partId = imagenPartId(mmsId) ?: continue
+                    return Uri.parse("content://mms/part/$partId")
+                }
+            }
+        }
+        // Respaldo: recorre el inbox y filtra por remitente (por si el hilo falla).
         val clave = numero.filter { it.isDigit() }.takeLast(7)
         if (clave.isEmpty()) return null
-        // MMS recibidos, del más reciente al más antiguo.
         context.contentResolver.query(
             Uri.parse("content://mms/inbox"), arrayOf("_id"), null, null, "date DESC"
         )?.use { c ->
-            while (c.moveToNext()) {
+            var revisados = 0
+            while (c.moveToNext() && revisados < 300) {   // límite para no colgarse
+                revisados++
                 val mmsId = c.getString(0) ?: continue
                 if (!mmsEsDe(mmsId, clave)) continue
                 val partId = imagenPartId(mmsId) ?: continue
