@@ -47,6 +47,7 @@ class TranslatorActivity : AppCompatActivity() {
     // Dirección activa mientras se escucha.
     private var traductorActual: Translator? = null
     private var idiomaVozDestino: Locale = Locale.ENGLISH
+    private var idiomaVozOrigen: Locale = Locale.forLanguageTag("es-ES")
     private var idiomaOrigenStt: String = "es-ES"
 
     // OCR e identificación de idioma (offline).
@@ -101,6 +102,17 @@ class TranslatorActivity : AppCompatActivity() {
             escuchar("en-US", enEs, Locale.forLanguageTag("es-ES"))
         }
         binding.buttonScan.setOnClickListener { escanearDocumento() }
+
+        binding.buttonLeerOriginal.setOnClickListener { leer(binding.textOriginal.text, idiomaVozOrigen) }
+        binding.buttonLeerTraduccion.setOnClickListener { leer(binding.textTraduccion.text, idiomaVozDestino) }
+    }
+
+    /** Lee un texto en voz alta en el idioma indicado (TTS de Android, offline). */
+    private fun leer(texto: CharSequence?, idioma: Locale) {
+        val t = texto?.toString()?.trim().orEmpty()
+        if (t.isBlank() || t == "—" || t == "…") { estado("Aún no hay texto para leer."); return }
+        tts?.language = idioma
+        tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "leer")
     }
 
     // --- Escaneo de documentos: cámara -> OCR -> traducir -> leer en voz alta ---
@@ -132,14 +144,17 @@ class TranslatorActivity : AppCompatActivity() {
                     langId.identifyLanguage(texto)
                         .addOnSuccessListener { codigo ->
                             if (codigo == "es") {
-                                traductorActual = esEn; idiomaVozDestino = Locale.ENGLISH
+                                traductorActual = esEn
+                                idiomaVozOrigen = Locale.forLanguageTag("es-ES"); idiomaVozDestino = Locale.ENGLISH
                             } else {
-                                traductorActual = enEs; idiomaVozDestino = Locale.forLanguageTag("es-ES")
+                                traductorActual = enEs
+                                idiomaVozOrigen = Locale.ENGLISH; idiomaVozDestino = Locale.forLanguageTag("es-ES")
                             }
                             traducir(texto)
                         }
                         .addOnFailureListener {
-                            traductorActual = enEs; idiomaVozDestino = Locale.forLanguageTag("es-ES")
+                            traductorActual = enEs
+                            idiomaVozOrigen = Locale.ENGLISH; idiomaVozDestino = Locale.forLanguageTag("es-ES")
                             traducir(texto)
                         }
                 }
@@ -172,6 +187,7 @@ class TranslatorActivity : AppCompatActivity() {
 
         traductorActual = traductor
         idiomaVozDestino = vozDestino
+        idiomaVozOrigen = Locale.forLanguageTag(idiomaOrigen)
         idiomaOrigenStt = idiomaOrigen
         binding.textOriginal.text = "…"
         binding.textTraduccion.text = "…"
