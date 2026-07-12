@@ -41,6 +41,7 @@ class CommandHandler(
     data class Contacto(val nombre: String, val numero: String)
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val despacho by lazy { DespachoExtractor(context, speak) }
 
     private val patronLlamada = Regex(
         // llam* cubre llama/llamar/llamada/llamando; marc* cubre marca/marcar/marcando.
@@ -122,6 +123,22 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
                 ContextCompat.startForegroundService(context, Intent(context, WakeWordService::class.java))
                 say("Escucha activada, Ariel. Di, hola Erik, cuando me necesites.")
             }
+            return
+        }
+
+        // Datos de despacho: "contenedor y dirección del Despach 4", "último mensaje del despach 2"…
+        // -> lee la última FOTO (MMS) de ese contacto y extrae contenedor + dirección.
+        if (cmdNorm.contains("despach") &&
+            Regex("contenedor|container|conteiner|direccion|datos|mensaje|informacion")
+                .containsMatchIn(cmdNorm)
+        ) {
+            val palabras = mapOf("uno" to "1", "dos" to "2", "tres" to "3", "cuatro" to "4", "cinco" to "5")
+            val m = Regex("despach\\w*\\s*(\\d+|uno|dos|tres|cuatro|cinco)").find(cmdNorm)
+            val num = m?.groupValues?.getOrNull(1)?.let { palabras[it] ?: it } ?: ""
+            val nombre = if (num.isNotEmpty()) "despach $num" else "despach"
+            val contacto = lookupContact(nombre)
+            if (contacto == null) { say("No encontré el contacto $nombre, Ariel."); return }
+            despacho.procesarUltimoDe(contacto.nombre, contacto.numero)
             return
         }
 
