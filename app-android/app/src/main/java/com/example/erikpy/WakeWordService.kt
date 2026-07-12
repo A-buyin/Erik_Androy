@@ -78,6 +78,7 @@ class WakeWordService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundConNotificacion("Erik escucha. Di \"actívate Erik\" o \"hola Erik\"; \"desactívate\" para liberar el micrófono.")
+        desmutearTodo()   // recupera el volumen por si una versión previa lo dejó silenciado
         activo = true
         main.post {
             if (!SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -96,7 +97,6 @@ class WakeWordService : Service() {
 
     private fun hablar(texto: String) {
         pendientesTts++
-        restaurarBip()   // asegura que la voz de Erik se oiga (no dejar el audio silenciado)
         try { recognizer?.cancel() } catch (e: Exception) {}
         tts?.speak(texto, TextToSpeech.QUEUE_ADD, null, "u${++idTts}")
     }
@@ -112,27 +112,18 @@ class WakeWordService : Service() {
 
     // --- Silenciar el pitido ("earcon") del reconocedor de Google ---
 
-    // El pitido puede sonar por música, sistema o notificaciones según el fabricante.
+    // Recupera el volumen por si una versión anterior dejó algún canal silenciado.
     private val streamsBip = intArrayOf(
         AudioManager.STREAM_MUSIC, AudioManager.STREAM_SYSTEM, AudioManager.STREAM_NOTIFICATION
     )
 
-    private fun silenciarBip() {
-        if (bipMute) return
-        bipMute = true
-        for (s in streamsBip) try { audio?.adjustStreamVolume(s, AudioManager.ADJUST_MUTE, 0) } catch (e: Exception) {}
-    }
-
-    private fun restaurarBip() {
-        if (!bipMute) return
-        bipMute = false
+    private fun desmutearTodo() {
         for (s in streamsBip) try { audio?.adjustStreamVolume(s, AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
+        bipMute = false
     }
 
     private fun escuchar() {
         if (!activo || pendientesTts > 0) return
-        silenciarBip()   // silencia el pitido de inicio; se restaura solo tras un momento
-        main.postDelayed({ restaurarBip() }, 900)
         try {
             recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -171,10 +162,7 @@ class WakeWordService : Service() {
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() {
-            silenciarBip()   // silencia también el pitido de fin
-            main.postDelayed({ restaurarBip() }, 700)
-        }
+        override fun onEndOfSpeech() {}
         override fun onPartialResults(partialResults: Bundle?) {}
         override fun onEvent(eventType: Int, params: Bundle?) {}
     }
@@ -213,7 +201,6 @@ class WakeWordService : Service() {
     private fun desactivar() {
         android.util.Log.i("ErikVoz", "Desactivación por voz: libero el micrófono.")
         activo = false
-        restaurarBip()   // que el aviso de voz se oiga
         try { recognizer?.cancel(); recognizer?.destroy() } catch (e: Exception) {}
         recognizer = null   // el micrófono queda libre de inmediato
         // Avisa a la app para que apague el interruptor y muestre el mensaje.
@@ -259,7 +246,7 @@ class WakeWordService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         activo = false
-        restaurarBip()   // nunca dejar el volumen de música silenciado al salir
+        desmutearTodo()   // por si quedó algún canal silenciado de una versión anterior
         try { recognizer?.destroy() } catch (e: Exception) {}
         recognizer = null
         tts?.stop(); tts?.shutdown(); tts = null
