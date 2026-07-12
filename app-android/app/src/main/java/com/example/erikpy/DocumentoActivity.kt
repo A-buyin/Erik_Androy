@@ -56,6 +56,16 @@ class DocumentoActivity : AppCompatActivity() {
         if (ok && uri != null) procesarDocumento(uri) else estado("Escaneo cancelado.")
     }
 
+    // Elegir una foto ya recibida (galería / mensajes).
+    private val elegirFoto = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) procesarDocumento(uri) else estado("No elegiste ninguna foto.")
+    }
+
+    // Número de contenedor ISO: 4 letras + 7 dígitos (p.ej. EITU1814854).
+    private val reContenedor = Regex("\\b([A-Z]{4})\\s?(\\d{7})\\b")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityDocumentoBinding.inflate(layoutInflater)
@@ -78,46 +88,71 @@ class DocumentoActivity : AppCompatActivity() {
         descargarModelos()
 
         binding.buttonDocScan.setOnClickListener { escanearDocumento() }
+        binding.buttonDocGaleria.setOnClickListener { elegirFoto.launch("image/*") }
         binding.buttonLeerDocOriginal.setOnClickListener { leer(binding.textDocOriginal.text, idiomaVozOrigen) }
         binding.buttonLeerDocTraduccion.setOnClickListener { leer(binding.textDocTraduccion.text, idiomaVozDestino) }
         binding.buttonDocExtraer.setOnClickListener { extraerDatos() }
         binding.buttonLeerDocDatos.setOnClickListener { leer(binding.textDocDatos.text, Locale.forLanguageTag("es-ES")) }
     }
 
-    /** Extrae los datos clave del texto escaneado usando el modelo del VPS. */
+    /** Extrae del documento de despacho el NÚMERO DE CONTENEDOR y la DIRECCIÓN de entrega. */
     private fun extraerDatos() {
         val texto = binding.textDocOriginal.text?.toString()?.trim().orEmpty()
         if (texto.isBlank() || texto == "—" || texto == "…") {
-            estado("Primero escanea un documento, Ariel."); return
-        }
-        if (BuildConfig.OLLAMA_URL.isBlank()) {
-            estado("El asistente con IA no está configurado, Ariel."); return
+            estado("Primero escanea o elige la foto del documento, Ariel."); return
         }
         estado("Extrayendo datos del documento…")
+
+        // 1) Contenedor por patrón exacto (4 letras + 7 dígitos): muy fiable, sin modelo.
+        val contenedorRegex = reContenedor.find(texto.uppercase())
+            ?.let { "${it.groupValues[1]}${it.groupValues[2]}" }
+
+        // 2) Dirección (y respaldo del contenedor) con el modelo del VPS.
+        if (BuildConfig.OLLAMA_URL.isBlank()) {
+            mostrarDatos(
+                "Contenedor: ${contenedorRegex ?: "no encontrado"}\n" +
+                "Dirección: (necesito el asistente del VPS para leerla)"
+            ); return
+        }
         val prompt = """
-Del siguiente texto de un documento, extrae los datos clave.
-Devuelve SOLO una lista, un dato por línea, en formato "Campo: valor".
-No añadas explicaciones, títulos ni comentarios.
-Si es una cédula o identificación, incluye nombre completo, número de documento,
-fecha de nacimiento, sexo y nacionalidad si aparecen.
-Si es otro documento, extrae los datos más importantes que encuentres.
+El siguiente es el texto (OCR) de un documento de despacho de contenedores.
+Extrae SOLO estos dos datos y devuélvelos EXACTAMENTE en dos líneas con este formato:
+Contenedor: <número de contenedor: 4 letras seguidas de 7 dígitos>
+Dirección: <dirección de entrega tras "DEL:": calle, ciudad, estado y código postal, sin el nombre de la empresa ni el teléfono>
+Si un dato no aparece, escribe "no encontrado". No añadas nada más.
 
 TEXTO:
 $texto
 """.trim()
         Thread {
-            val datos = try { consultarModelo(prompt) } catch (e: Exception) { null }
+            val resp = try { consultarModelo(prompt) } catch (e: Exception) { null }
             runOnUiThread {
-                if (datos.isNullOrBlank()) {
-                    estado("No pude extraer los datos. Revisa la conexión, Ariel.")
-                } else {
-                    binding.textDocDatos.text = datos
-                    binding.cardDocDatos.visibility = View.VISIBLE
-                    estado("Datos extraídos, Ariel.")
-                    leer(datos, Locale.forLanguageTag("es-ES"))
-                }
+                val contenedor = contenedorRegex ?: extraerCampo(resp, "Contenedor") ?: "no encontrado"
+                val direccion = extraerCampo(resp, "Dirección")
+                    ?: extraerCampo(resp, "Direccion") ?: "no encontrada"
+                mostrarDatos("Contenedor: $contenedor\nDirección: $direccion")
             }
         }.start()
+    }
+
+    /** Busca en la respuesta del modelo una línea "Campo: valor" y devuelve el valor. */
+    private fun extraerCampo(resp: String?, campo: String): String? {
+        if (resp.isNullOrBlank()) return null
+        for (linea in resp.lines()) {
+            val l = linea.trim().removePrefix("-").trim()
+            if (l.startsWith(campo, ignoreCase = true) && l.contains(":")) {
+                val v = l.substringAfter(":").trim()
+                if (v.isNotEmpty() && !v.equals("no encontrado", true) && !v.equals("no encontrada", true)) return v
+            }
+        }
+        return null
+    }
+
+    private fun mostrarDatos(texto: String) {
+        binding.textDocDatos.text = texto
+        binding.cardDocDatos.visibility = View.VISIBLE
+        estado("Datos extraídos, Ariel.")
+        leer(texto, Locale.forLanguageTag("es-ES"))
     }
 
     /** Consulta al modelo del VPS (Ollama) y devuelve la respuesta, o null si falla. */

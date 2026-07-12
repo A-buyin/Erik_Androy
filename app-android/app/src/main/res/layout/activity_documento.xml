@@ -29,14 +29,14 @@
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
 
-        <!-- Botón: escanear documento con la cámara -->
+        <!-- Botón: tomar foto del documento con la cámara -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_doc_scan"
             android:layout_width="match_parent"
             android:layout_height="64dp"
             android:layout_marginTop="20dp"
             android:background="@drawable/btn_ocean"
-            android:text="Escanear documento y traducir"
+            android:text="Tomar foto del documento"
             android:textColor="@color/white"
             android:textSize="16sp"
             android:textStyle="bold"
@@ -44,6 +44,19 @@
             app:icon="@drawable/ic_camera"
             app:iconGravity="textStart"
             app:iconTint="@color/white" />
+
+        <!-- Botón: elegir una foto ya recibida (galería / mensajes) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_doc_galeria"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="10dp"
+            android:text="Elegir foto de la galería"
+            android:textSize="16sp"
+            app:cornerRadius="14dp"
+            app:icon="@drawable/ic_contacts"
+            app:iconGravity="textStart" />
 
         <!-- Tarjeta de resultado -->
         <com.google.android.material.card.MaterialCardView
