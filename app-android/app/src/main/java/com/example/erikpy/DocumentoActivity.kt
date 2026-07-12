@@ -3,9 +3,16 @@ package com.example.erikpy
 import android.net.Uri
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import com.example.erikpy.databinding.ActivityDocumentoBinding
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
@@ -73,6 +80,78 @@ class DocumentoActivity : AppCompatActivity() {
         binding.buttonDocScan.setOnClickListener { escanearDocumento() }
         binding.buttonLeerDocOriginal.setOnClickListener { leer(binding.textDocOriginal.text, idiomaVozOrigen) }
         binding.buttonLeerDocTraduccion.setOnClickListener { leer(binding.textDocTraduccion.text, idiomaVozDestino) }
+        binding.buttonDocExtraer.setOnClickListener { extraerDatos() }
+        binding.buttonLeerDocDatos.setOnClickListener { leer(binding.textDocDatos.text, Locale.forLanguageTag("es-ES")) }
+    }
+
+    /** Extrae los datos clave del texto escaneado usando el modelo del VPS. */
+    private fun extraerDatos() {
+        val texto = binding.textDocOriginal.text?.toString()?.trim().orEmpty()
+        if (texto.isBlank() || texto == "—" || texto == "…") {
+            estado("Primero escanea un documento, Ariel."); return
+        }
+        if (BuildConfig.OLLAMA_URL.isBlank()) {
+            estado("El asistente con IA no está configurado, Ariel."); return
+        }
+        estado("Extrayendo datos del documento…")
+        val prompt = """
+Del siguiente texto de un documento, extrae los datos clave.
+Devuelve SOLO una lista, un dato por línea, en formato "Campo: valor".
+No añadas explicaciones, títulos ni comentarios.
+Si es una cédula o identificación, incluye nombre completo, número de documento,
+fecha de nacimiento, sexo y nacionalidad si aparecen.
+Si es otro documento, extrae los datos más importantes que encuentres.
+
+TEXTO:
+$texto
+""".trim()
+        Thread {
+            val datos = try { consultarModelo(prompt) } catch (e: Exception) { null }
+            runOnUiThread {
+                if (datos.isNullOrBlank()) {
+                    estado("No pude extraer los datos. Revisa la conexión, Ariel.")
+                } else {
+                    binding.textDocDatos.text = datos
+                    binding.cardDocDatos.visibility = View.VISIBLE
+                    estado("Datos extraídos, Ariel.")
+                    leer(datos, Locale.forLanguageTag("es-ES"))
+                }
+            }
+        }.start()
+    }
+
+    /** Consulta al modelo del VPS (Ollama) y devuelve la respuesta, o null si falla. */
+    private fun consultarModelo(prompt: String): String? {
+        val body = JSONObject().apply {
+            put("model", BuildConfig.OLLAMA_MODEL)
+            put("prompt", prompt)
+            put("stream", false)
+            put("keep_alive", "30m")
+            put("options", JSONObject().put("num_predict", 300))
+        }.toString()
+        val conn = URL(BuildConfig.OLLAMA_URL).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 15000
+            conn.readTimeout = 120000
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (BuildConfig.OLLAMA_USER.isNotBlank()) {
+                val cred = "${BuildConfig.OLLAMA_USER}:${BuildConfig.OLLAMA_PASSWORD}"
+                conn.setRequestProperty(
+                    "Authorization",
+                    "Basic " + android.util.Base64.encodeToString(
+                        cred.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
+                    )
+                )
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+            if (conn.responseCode !in 200..299) return null
+            val txt = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { it.readText() }
+            return JSONObject(txt).optString("response").trim()
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun descargarModelos() {
