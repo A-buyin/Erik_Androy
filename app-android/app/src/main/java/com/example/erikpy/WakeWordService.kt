@@ -112,15 +112,21 @@ class WakeWordService : Service() {
 
     // --- Silenciar el pitido ("earcon") del reconocedor de Google ---
 
+    // El pitido puede sonar por música, sistema o notificaciones según el fabricante.
+    private val streamsBip = intArrayOf(
+        AudioManager.STREAM_MUSIC, AudioManager.STREAM_SYSTEM, AudioManager.STREAM_NOTIFICATION
+    )
+
     private fun silenciarBip() {
         if (bipMute) return
-        try { audio?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0); bipMute = true } catch (e: Exception) {}
+        bipMute = true
+        for (s in streamsBip) try { audio?.adjustStreamVolume(s, AudioManager.ADJUST_MUTE, 0) } catch (e: Exception) {}
     }
 
     private fun restaurarBip() {
         if (!bipMute) return
-        try { audio?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
         bipMute = false
+        for (s in streamsBip) try { audio?.adjustStreamVolume(s, AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
     }
 
     private fun escuchar() {
