@@ -22,12 +22,8 @@ class VozErik(private val context: Context) {
     private var player: MediaPlayer? = null
     private val main = Handler(Looper.getMainLooper())
 
-    fun vozSeleccionada(): String =
-        context.getSharedPreferences("erik", 0).getString("voz", "Luis Moray") ?: "Luis Moray"
-
-    fun guardarVoz(valor: String) {
-        context.getSharedPreferences("erik", 0).edit().putString("voz", valor).apply()
-    }
+    // Voz única de Erik (clara y agradable). Se usa en asistente, llamadas y traductor.
+    fun vozSeleccionada(): String = "Luis Moray"
 
     /**
      * Habla [text] en [idioma] ("es"/"en") con la voz elegida. Si el servidor no

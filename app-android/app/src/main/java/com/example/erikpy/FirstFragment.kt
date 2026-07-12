@@ -181,8 +181,6 @@ class FirstFragment : Fragment() {
 
         binding.buttonMisGrabaciones.setOnClickListener { mostrarGrabaciones() }
 
-        binding.buttonVozErik.setOnClickListener { mostrarSelectorVoz() }
-
         // Interruptor de escucha permanente ("hola Erik" / "actívate Erik").
         binding.switchWake.isChecked = false
         binding.switchWake.setOnCheckedChangeListener { _, isChecked ->
@@ -519,34 +517,6 @@ class FirstFragment : Fragment() {
     // --- Voz de Erik (compartida con las llamadas y el traductor) ---
 
     private val vozErik by lazy { VozErik(requireContext().applicationContext) }
-
-    // Voces disponibles: etiqueta visible -> valor que entiende el servidor /tts.
-    private val vocesErik = listOf(
-        "Mi voz (clonada)" to "clonada",
-        "Luis Moray (hombre)" to "Luis Moray",
-        "Damien Black (hombre)" to "Damien Black",
-        "Marcos Rudaski (hombre)" to "Marcos Rudaski",
-        "Damjan Chapman (hombre)" to "Damjan Chapman",
-        "Alma María (mujer)" to "Alma María",
-        "Sofia Hellen (mujer)" to "Sofia Hellen",
-        "Ana Florence (mujer)" to "Ana Florence"
-    )
-
-    /** Selector de la voz con la que habla Erik; al elegir, la prueba en esa voz. */
-    private fun mostrarSelectorVoz() {
-        val etiquetas = vocesErik.map { it.first }.toTypedArray()
-        val actual = vozErik.vozSeleccionada()
-        val seleccion = vocesErik.indexOfFirst { it.second == actual }.coerceAtLeast(0)
-        MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Voz de Erik")
-            .setSingleChoiceItems(etiquetas, seleccion) { dialog, cual ->
-                vozErik.guardarVoz(vocesErik[cual].second)
-                dialog.dismiss()
-                respond("Listo, Ariel. Esta es mi nueva voz.")  // se locuta con la voz elegida
-            }
-            .setNegativeButton("Cerrar", null)
-            .show()
-    }
 
     private fun respond(text: String) {
         android.util.Log.i("ErikVoz", "Erik responde: $text")
