@@ -41,10 +41,15 @@ from TTS.api import TTS
 MUESTRA = os.environ.get("VOZ_SAMPLE", "mi_voz.wav")
 IDIOMA = os.environ.get("VOZ_IDIOMA", "es")
 MODELO = os.environ.get("VOZ_MODELO", "tts_models/multilingual/multi-dataset/xtts_v2")
+# Voz INTEGRADA de XTTS (p.ej. "Luis Moray"). Si se define, se usa en vez de la
+# muestra clonada; útil para una voz de estudio sin grabar nada.
+SPEAKER = os.environ.get("VOZ_SPEAKER", "").strip()
 
-if not os.path.exists(MUESTRA):
+# Solo se exige la muestra si NO se usa una voz integrada.
+if not SPEAKER and not os.path.exists(MUESTRA):
     raise SystemExit(f"No encuentro la muestra de voz: {MUESTRA}. "
-                     f"Graba 15-40 s de tu voz y guárdala ahí (o define VOZ_SAMPLE).")
+                     f"Graba 15-40 s de tu voz y guárdala ahí (o define VOZ_SAMPLE), "
+                     f"o define VOZ_SPEAKER con una voz integrada de XTTS.")
 
 print(f"Cargando XTTS ({MODELO})... la primera vez puede tardar.")
 _tts = TTS(MODELO)  # descarga el modelo la primera vez y lo mantiene en memoria
@@ -58,7 +63,7 @@ class Peticion(BaseModel):
 
 @app.get("/salud")
 def salud():
-    return {"ok": True, "muestra": MUESTRA, "idioma": IDIOMA}
+    return {"ok": True, "voz": SPEAKER or MUESTRA, "integrada": bool(SPEAKER), "idioma": IDIOMA}
 
 
 @app.post("/tts")
@@ -69,8 +74,12 @@ def tts(pet: Peticion):
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         ruta = f.name
     try:
-        _tts.tts_to_file(text=texto, speaker_wav=MUESTRA,
-                         language=IDIOMA, file_path=ruta)
+        if SPEAKER:
+            _tts.tts_to_file(text=texto, speaker=SPEAKER,
+                             language=IDIOMA, file_path=ruta)
+        else:
+            _tts.tts_to_file(text=texto, speaker_wav=MUESTRA,
+                             language=IDIOMA, file_path=ruta)
         with open(ruta, "rb") as fh:
             audio = fh.read()
     finally:
