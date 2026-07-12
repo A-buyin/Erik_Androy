@@ -173,6 +173,8 @@ class FirstFragment : Fragment() {
 
         binding.buttonMisGrabaciones.setOnClickListener { mostrarGrabaciones() }
 
+        binding.buttonVozErik.setOnClickListener { mostrarSelectorVoz() }
+
         // Interruptor de escucha permanente ("hola Erik").
         binding.switchWake.isChecked = false
         binding.switchWake.setOnCheckedChangeListener { _, isChecked ->
@@ -477,6 +479,34 @@ class FirstFragment : Fragment() {
 
     private var vozPlayer: android.media.MediaPlayer? = null
 
+    // Voces disponibles: etiqueta visible -> valor que entiende el servidor /tts.
+    private val vocesErik = listOf(
+        "Mi voz (clonada)" to "clonada",
+        "Luis Moray (hombre)" to "Luis Moray",
+        "Damien Black (hombre)" to "Damien Black"
+    )
+
+    private fun vozActual(): String =
+        requireContext().getSharedPreferences("erik", 0).getString("voz", "Luis Moray") ?: "Luis Moray"
+
+    /** Selector de la voz con la que habla Erik; al elegir, la prueba en esa voz. */
+    private fun mostrarSelectorVoz() {
+        val etiquetas = vocesErik.map { it.first }.toTypedArray()
+        val actual = vozActual()
+        val seleccion = vocesErik.indexOfFirst { it.second == actual }.coerceAtLeast(0)
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Voz de Erik")
+            .setSingleChoiceItems(etiquetas, seleccion) { dialog, cual ->
+                val (_, valor) = vocesErik[cual]
+                requireContext().getSharedPreferences("erik", 0)
+                    .edit().putString("voz", valor).apply()
+                dialog.dismiss()
+                respond("Listo, Ariel. Esta es mi nueva voz.")  // se locuta con la voz elegida
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+
     private fun respond(text: String) {
         android.util.Log.i("ErikVoz", "Erik responde: $text")
         hablar(text, null)
@@ -511,7 +541,7 @@ class FirstFragment : Fragment() {
 
     /** Pide el audio de la voz clonada al VPS. Devuelve el WAV en caché, o null si falla. */
     private fun pedirVozClonada(text: String): File? {
-        val body = JSONObject().put("text", text).toString()
+        val body = JSONObject().put("text", text).put("voz", vozActual()).toString()
         val conn = URL(BuildConfig.VOZ_URL).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"

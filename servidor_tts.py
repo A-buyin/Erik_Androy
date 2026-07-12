@@ -59,6 +59,11 @@ app = FastAPI(title="Erik TTS - voz clonada")
 
 class Peticion(BaseModel):
     text: str
+    voz: str | None = None   # "clonada"/"mi_voz" -> muestra; nombre -> voz integrada de XTTS
+
+
+# Valores que piden explícitamente la voz clonada del usuario (la muestra).
+_ALIAS_CLONADA = {"clonada", "mi_voz", "mivoz", "mia", "mía", "yo", "ariel"}
 
 
 @app.get("/salud")
@@ -71,14 +76,31 @@ def tts(pet: Peticion):
     texto = (pet.text or "").strip()
     if not texto:
         return Response(status_code=204)
+
+    # Decide la voz de ESTA petición: lo que pida el cliente manda; si no, el default.
+    pedida = (pet.voz or "").strip()
+    if not pedida:
+        usar_speaker = SPEAKER
+        usar_muestra = None if SPEAKER else MUESTRA
+    elif pedida.lower() in _ALIAS_CLONADA:
+        usar_speaker = None
+        usar_muestra = MUESTRA
+    else:
+        usar_speaker = pedida         # nombre de voz integrada (p.ej. "Luis Moray")
+        usar_muestra = None
+    # Si se pidió la voz clonada pero no hay muestra, cae a la voz integrada por defecto.
+    if usar_muestra and not os.path.exists(usar_muestra):
+        usar_speaker = SPEAKER or "Luis Moray"
+        usar_muestra = None
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         ruta = f.name
     try:
-        if SPEAKER:
-            _tts.tts_to_file(text=texto, speaker=SPEAKER,
+        if usar_speaker:
+            _tts.tts_to_file(text=texto, speaker=usar_speaker,
                              language=IDIOMA, file_path=ruta)
         else:
-            _tts.tts_to_file(text=texto, speaker_wav=MUESTRA,
+            _tts.tts_to_file(text=texto, speaker_wav=usar_muestra,
                              language=IDIOMA, file_path=ruta)
         with open(ruta, "rb") as fh:
             audio = fh.read()
