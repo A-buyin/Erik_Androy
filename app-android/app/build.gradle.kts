@@ -40,6 +40,8 @@ android {
         buildConfigField("String", "OLLAMA_MODEL", "\"${ollamaProp("ollama.model", "qwen2.5-coder:7b")}\"")
         buildConfigField("String", "OLLAMA_USER", "\"${ollamaProp("ollama.user")}\"")
         buildConfigField("String", "OLLAMA_PASSWORD", "\"${ollamaProp("ollama.password")}\"")
+        // Voz clonada (servidor TTS en el VPS). Reutiliza la auth de Ollama.
+        buildConfigField("String", "VOZ_URL", "\"${ollamaProp("voz.url", "https://api.blatcode.com/tts")}\"")
     }
 
     buildTypes {

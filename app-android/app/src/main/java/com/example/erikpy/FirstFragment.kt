@@ -22,7 +22,11 @@ import androidx.fragment.app.Fragment
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.erikpy.databinding.FragmentFirstBinding
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import org.json.JSONObject
 import java.io.File
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 class FirstFragment : Fragment() {
@@ -471,22 +475,101 @@ class FirstFragment : Fragment() {
 
     // --- Respuesta por voz / pantalla ---
 
+    private var vozPlayer: android.media.MediaPlayer? = null
+
     private fun respond(text: String) {
         android.util.Log.i("ErikVoz", "Erik responde: $text")
-        _binding?.textviewResponse?.text = text
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "errik")
+        hablar(text, null)
     }
 
     /** Locuta y, al terminar, reabre el micrófono (modo conversación tras "hola Erik"). */
     private fun respondThenListen(text: String) {
         android.util.Log.i("ErikVoz", "Erik responde: $text")
+        hablar(text) { if (isAdded && _binding != null) startVoiceInput() }
+    }
+
+    /** Habla con TU voz clonada (servidor /tts del VPS). Si falla, usa el TTS de Android.
+     *  `alTerminar` se invoca cuando termina de sonar (para reabrir el micrófono). */
+    private fun hablar(text: String, alTerminar: (() -> Unit)?) {
         _binding?.textviewResponse?.text = text
+        if (BuildConfig.VOZ_URL.isBlank()) { hablarSistema(text, alTerminar); return }
+        Thread {
+            val audio = try { pedirVozClonada(text) } catch (e: Exception) {
+                android.util.Log.w("ErikVoz", "Voz clonada falló: ${e.javaClass.simpleName}: ${e.message}")
+                null
+            }
+            activity?.runOnUiThread {
+                if (!isAdded || _binding == null) return@runOnUiThread
+                if (audio != null && audio.exists() && audio.length() > 1024) {
+                    reproducirVoz(audio, alTerminar)
+                } else {
+                    hablarSistema(text, alTerminar)  // respaldo: voz sintética de Android
+                }
+            }
+        }.start()
+    }
+
+    /** Pide el audio de la voz clonada al VPS. Devuelve el WAV en caché, o null si falla. */
+    private fun pedirVozClonada(text: String): File? {
+        val body = JSONObject().put("text", text).toString()
+        val conn = URL(BuildConfig.VOZ_URL).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.connectTimeout = 15000
+            conn.readTimeout = 60000
+            conn.setRequestProperty("Content-Type", "application/json")
+            if (BuildConfig.OLLAMA_USER.isNotBlank()) {
+                val cred = "${BuildConfig.OLLAMA_USER}:${BuildConfig.OLLAMA_PASSWORD}"
+                conn.setRequestProperty(
+                    "Authorization",
+                    "Basic " + android.util.Base64.encodeToString(
+                        cred.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
+                    )
+                )
+            }
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(body) }
+            if (conn.responseCode !in 200..299) {
+                android.util.Log.w("ErikVoz", "TTS HTTP ${conn.responseCode}")
+                return null
+            }
+            val f = File(requireContext().cacheDir, "voz_erik.wav")
+            conn.inputStream.use { input -> f.outputStream().use { out -> input.copyTo(out) } }
+            return f
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun reproducirVoz(archivo: File, alTerminar: (() -> Unit)?) {
+        try {
+            vozPlayer?.release()
+            vozPlayer = android.media.MediaPlayer().apply {
+                setDataSource(archivo.absolutePath)
+                setOnCompletionListener {
+                    it.release(); if (vozPlayer === it) vozPlayer = null
+                    alTerminar?.let { cb -> activity?.runOnUiThread { if (isAdded) cb() } }
+                }
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            alTerminar?.invoke()
+        }
+    }
+
+    /** Respaldo: voz sintética de Android (cuando no hay servidor de voz o falla). */
+    private fun hablarSistema(text: String, alTerminar: (() -> Unit)?) {
+        if (alTerminar == null) {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "errik")
+            return
+        }
         tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onError(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
                 if (utteranceId == "saludo") activity?.runOnUiThread {
-                    if (isAdded && _binding != null) startVoiceInput()
+                    if (isAdded && _binding != null) alTerminar()
                 }
             }
         })
@@ -501,6 +584,7 @@ class FirstFragment : Fragment() {
             grabador?.detener(); grabador = null
         }
         reproductor?.release(); reproductor = null
+        vozPlayer?.release(); vozPlayer = null
         tts?.stop(); tts?.shutdown(); tts = null
         _binding = null
     }
