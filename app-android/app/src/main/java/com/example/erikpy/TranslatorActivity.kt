@@ -38,6 +38,7 @@ class TranslatorActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTranslatorBinding
     private var tts: TextToSpeech? = null
     private var recognizer: SpeechRecognizer? = null
+    private val vozErik by lazy { VozErik(applicationContext) }
 
     private lateinit var esEn: Translator   // español -> inglés
     private lateinit var enEs: Translator   // inglés -> español
@@ -107,12 +108,15 @@ class TranslatorActivity : AppCompatActivity() {
         binding.buttonLeerTraduccion.setOnClickListener { leer(binding.textTraduccion.text, idiomaVozDestino) }
     }
 
-    /** Lee un texto en voz alta en el idioma indicado (TTS de Android, offline). */
+    /** Lee un texto en voz alta con la voz elegida por el usuario; respaldo: TTS de Android. */
     private fun leer(texto: CharSequence?, idioma: Locale) {
         val t = texto?.toString()?.trim().orEmpty()
         if (t.isBlank() || t == "—" || t == "…") { estado("Aún no hay texto para leer."); return }
-        tts?.language = idioma
-        tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "leer")
+        val codigo = if (idioma.language == "en") "en" else "es"
+        vozErik.hablar(t, codigo, null) { txt, _ ->
+            tts?.language = idioma
+            tts?.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "leer")
+        }
     }
 
     // --- Escaneo de documentos: cámara -> OCR -> traducir -> leer en voz alta ---
@@ -235,8 +239,7 @@ class TranslatorActivity : AppCompatActivity() {
             .addOnSuccessListener { traducido ->
                 binding.textTraduccion.text = traducido
                 estado("Listo. Toca un botón y habla.")
-                tts?.language = idiomaVozDestino
-                tts?.speak(traducido, TextToSpeech.QUEUE_FLUSH, null, "trad")
+                leer(traducido, idiomaVozDestino)   // voz elegida (con respaldo a TTS de Android)
             }
             .addOnFailureListener { estado("No pude traducir. Inténtalo otra vez.") }
     }
@@ -248,6 +251,7 @@ class TranslatorActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         recognizer?.destroy(); recognizer = null
+        vozErik.liberar()
         tts?.stop(); tts?.shutdown(); tts = null
         esEn.close(); enEs.close()
         ocr.close(); langId.close()

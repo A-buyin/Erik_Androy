@@ -59,7 +59,8 @@ app = FastAPI(title="Erik TTS - voz clonada")
 
 class Peticion(BaseModel):
     text: str
-    voz: str | None = None   # "clonada"/"mi_voz" -> muestra; nombre -> voz integrada de XTTS
+    voz: str | None = None      # "clonada"/"mi_voz" -> muestra; nombre -> voz integrada de XTTS
+    idioma: str | None = None   # "es"/"en"/... ; por defecto el del servidor
 
 
 # Valores que piden explícitamente la voz clonada del usuario (la muestra).
@@ -93,15 +94,17 @@ def tts(pet: Peticion):
         usar_speaker = SPEAKER or "Luis Moray"
         usar_muestra = None
 
+    idm = (pet.idioma or IDIOMA).strip() or IDIOMA
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         ruta = f.name
     try:
         if usar_speaker:
             _tts.tts_to_file(text=texto, speaker=usar_speaker,
-                             language=IDIOMA, file_path=ruta)
+                             language=idm, file_path=ruta)
         else:
             _tts.tts_to_file(text=texto, speaker_wav=usar_muestra,
-                             language=IDIOMA, file_path=ruta)
+                             language=idm, file_path=ruta)
         with open(ruta, "rb") as fh:
             audio = fh.read()
     finally:
