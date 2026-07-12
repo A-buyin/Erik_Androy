@@ -110,9 +110,7 @@ class WakeWordService : Service() {
 
     // --- Escucha (Google) ---
 
-    // --- Silenciar el pitido ("earcon") del reconocedor de Google ---
-
-    // Recupera el volumen por si una versión anterior dejó algún canal silenciado.
+    // Recupera el volumen por si una versión anterior (la del pitido) dejó algo silenciado.
     private val streamsBip = intArrayOf(
         AudioManager.STREAM_MUSIC, AudioManager.STREAM_SYSTEM, AudioManager.STREAM_NOTIFICATION
     )
@@ -129,10 +127,14 @@ class WakeWordService : Service() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                // Alarga cada sesión de escucha para reiniciar (y pitar) menos veces.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 6000)
             })
         } catch (e: Exception) {
             android.util.Log.e("ErikVoz", "startListening falló: ${e.message}")
-            reintentar(1000)
+            reintentar(1500)
         }
     }
 
@@ -152,11 +154,17 @@ class WakeWordService : Service() {
                 ?.firstOrNull()?.trim().orEmpty()
             if (texto.isNotBlank()) android.util.Log.i("ErikVoz", "oyó (Google): $texto")
             val actuo = procesar(texto)
-            if (!actuo) reintentar()   // si actuó, el TTS reanudará la escucha al callar
+            if (!actuo) reintentar(1000)   // si actuó, el TTS reanudará la escucha al callar
         }
         override fun onError(error: Int) {
             if (pendientesTts > 0) return   // estamos hablando; ya se reanudará
-            reintentar(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200 else 400)
+            // Pausas más largas al no oír nada -> reinicia (y pita) mucho menos seguido.
+            val espera = when (error) {
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1800L
+                SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 2000L
+                else -> 900L
+            }
+            reintentar(espera)
         }
         override fun onReadyForSpeech(params: Bundle?) {}
         override fun onBeginningOfSpeech() {}
