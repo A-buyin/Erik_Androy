@@ -34,6 +34,8 @@ class WakeWordService : Service() {
         private const val CHANNEL_ID = "erik_wake"
         private const val NOTIF_ID = 1001
         private const val VENTANA_COMANDO_MS = 10000L
+        // Aviso a la app de que la escucha se apagó por voz (para actualizar el interruptor).
+        const val ACTION_WAKE_OFF = "com.example.erikpy.WAKE_OFF"
     }
 
     private enum class Estado { ESPERA, COMANDO }
@@ -48,7 +50,12 @@ class WakeWordService : Service() {
     @Volatile private var pendientesTts = 0   // >0 = Erik está hablando (no escuchar)
     private var idTts = 0
 
-    private val reWake = Regex("(?i)\\b(?:hola\\s+|oye\\s+|hey\\s+|ola\\s+)?(?:erik|eric|erick|herik|érik)\\b")
+    // Activación: "hola Erik", "actívate Erik", "oye Erik"…
+    private val reWake = Regex("(?i)\\b(?:hola\\s+|oye\\s+|hey\\s+|ola\\s+|activ\\w*\\s+)?(?:erik|eric|erick|herik|érik)\\b")
+    // Apagar y liberar el micrófono: "desactívate", "apaga el micrófono", "deja de escuchar".
+    private val reApagar = Regex(
+        "(?i)\\b(?:desactiv\\w*|apag\\w*\\s+(?:el\\s+)?(?:microfono|micrófono|erik)|deja\\s+de\\s+escuchar|silencia\\w*\\s+erik)\\b"
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -66,7 +73,7 @@ class WakeWordService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundConNotificacion("Erik está escuchando. Di \"hola Erik\".")
+        startForegroundConNotificacion("Erik escucha. Di \"actívate Erik\" o \"hola Erik\"; \"desactívate\" para liberar el micrófono.")
         activo = true
         main.post {
             if (!SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -147,6 +154,9 @@ class WakeWordService : Service() {
     private fun procesar(texto: String): Boolean {
         if (texto.isBlank()) return false
 
+        // "Desactívate" en cualquier momento: apaga y libera el micrófono.
+        if (reApagar.containsMatchIn(texto)) { desactivar(); return true }
+
         if (estado == Estado.COMANDO) {
             estado = Estado.ESPERA
             android.util.Log.i("ErikVoz", "Ejecutando comando: $texto")
@@ -168,6 +178,19 @@ class WakeWordService : Service() {
             hablar("Hola Ariel, ¿en qué te puedo ayudar?")
             true
         }
+    }
+
+    /** Apaga la escucha y LIBERA el micrófono para otras apps. */
+    private fun desactivar() {
+        android.util.Log.i("ErikVoz", "Desactivación por voz: libero el micrófono.")
+        activo = false
+        try { recognizer?.cancel(); recognizer?.destroy() } catch (e: Exception) {}
+        recognizer = null   // el micrófono queda libre de inmediato
+        // Avisa a la app para que apague el interruptor.
+        sendBroadcast(Intent(ACTION_WAKE_OFF).setPackage(packageName))
+        tts?.speak("Micrófono liberado, Ariel. Toca el interruptor para volver a activarme.",
+            TextToSpeech.QUEUE_FLUSH, null, "off")
+        main.postDelayed({ stopSelf() }, 3000)
     }
 
     // --- Notificación de primer plano (obligatoria) ---

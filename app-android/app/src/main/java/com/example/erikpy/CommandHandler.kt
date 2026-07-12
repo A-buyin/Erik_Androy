@@ -55,6 +55,9 @@ class CommandHandler(
         "|me\\s+(?:envio|escribio|mando|manda|envia|escribe|escribio)\\s+(.+)$"
     )
     private val patronColgar = Regex("\\bcuelg\\w*\\b|\\bcolg\\w*\\b|\\bcort\\w*\\s+la\\s+llamad\\w*")
+    // Encender / apagar la escucha permanente por voz (libera el micrófono).
+    private val patronActivarEscucha = Regex("\\bactiv\\w*\\s+(?:a\\s+|la\\s+|el\\s+)?(?:erik|eric|escucha|microfono)")
+    private val patronDesactivarEscucha = Regex("\\bdesactiv\\w*|deja\\s+de\\s+escuchar|apag\\w*\\s+(?:el\\s+)?(?:microfono|erik)")
     private val patronOllama = Regex(
         "(?:pregunt\\w*|consult\\w*)\\s+a\\s+(?:o\\s*llama|ollama|olama|oyama|llama)\\b\\s*(.*)$"
     )
@@ -103,6 +106,24 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
         val cmdNorm = normalizar(command)
 
         if (patronColgar.containsMatchIn(cmdNorm)) { hangUpCall(); return }
+
+        // Apagar la escucha permanente y liberar el micrófono para otras apps.
+        if (patronDesactivarEscucha.containsMatchIn(cmdNorm)) {
+            context.stopService(Intent(context, WakeWordService::class.java))
+            say("Escucha desactivada, Ariel. Micrófono liberado."); return
+        }
+        // Encender la escucha permanente por voz.
+        if (patronActivarEscucha.containsMatchIn(cmdNorm)) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                say("Necesito permiso de micrófono. Actívalo con el interruptor de la app, Ariel.")
+            } else {
+                ContextCompat.startForegroundService(context, Intent(context, WakeWordService::class.java))
+                say("Escucha activada, Ariel. Di, hola Erik, cuando me necesites.")
+            }
+            return
+        }
 
         // "¿qué mensaje me envió Hilda?" / "último mensaje de Hilda" -> SMS de ese contacto.
         val mMsjDe = patronMensajeDe.find(cmdNorm)

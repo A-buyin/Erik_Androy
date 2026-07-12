@@ -175,11 +175,18 @@ class FirstFragment : Fragment() {
 
         binding.buttonVozErik.setOnClickListener { mostrarSelectorVoz() }
 
-        // Interruptor de escucha permanente ("hola Erik").
+        // Interruptor de escucha permanente ("hola Erik" / "actívate Erik").
         binding.switchWake.isChecked = false
         binding.switchWake.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) enableWakeListening() else stopWakeService()
         }
+
+        // Si la escucha se apaga por voz ("desactívate"), refleja el interruptor.
+        androidx.core.content.ContextCompat.registerReceiver(
+            requireContext(), wakeOffReceiver,
+            android.content.IntentFilter(WakeWordService.ACTION_WAKE_OFF),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         binding.buttonToggleHelp.setOnClickListener {
             val visible = binding.cardHelp.visibility == View.VISIBLE
@@ -229,6 +236,13 @@ class FirstFragment : Fragment() {
     }
 
     // --- Escucha permanente ---
+
+    // Recibe el aviso del servicio cuando se desactiva por voz.
+    private val wakeOffReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
+            if (isAdded && _binding != null) binding.switchWake.isChecked = false
+        }
+    }
 
     private fun hasPermission(perm: String) =
         ContextCompat.checkSelfPermission(requireContext(), perm) == PackageManager.PERMISSION_GRANTED
@@ -556,6 +570,7 @@ class FirstFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        try { requireContext().unregisterReceiver(wakeOffReceiver) } catch (e: Exception) {}
         if (grabandoVoz) {
             grabandoVoz = false
             handler.removeCallbacks(cronometro)
