@@ -8,7 +8,7 @@
 
     <string name="hint_command">Ej: llama a mamá  /  último mensaje  /  ayuda</string>
     <string name="send">Enviar</string>
-    <string name="voice">Activar Erik (escucha)</string>
+    <string name="voice">Hablar</string>
     <string name="voice_prompt">Di un comando…</string>
     <string name="errik_ready">Errik activado. ¿Qué necesitas?</string>
     <string name="label_response">Respuesta</string>

@@ -162,15 +162,8 @@ class FirstFragment : Fragment() {
             }
         }
 
-        // El botón alterna la escucha continua: actívala / desactívala tocándolo.
-        binding.buttonVoice.setOnClickListener {
-            if (binding.switchWake.isChecked) {
-                binding.switchWake.isChecked = false   // -> stopWakeService (mensaje en pantalla)
-                respond("Erik desactivado, Ariel. Micrófono liberado.")   // confirmación por voz
-            } else {
-                binding.switchWake.isChecked = true    // -> enableWakeListening / startWakeService
-            }
-        }
+        // Botón "Hablar": escucha UNA orden ahora (independiente del interruptor).
+        binding.buttonVoice.setOnClickListener { startVoiceInput() }
 
         binding.buttonTranslator.setOnClickListener {
             startActivity(Intent(requireContext(), TranslatorActivity::class.java))
@@ -283,13 +276,11 @@ class FirstFragment : Fragment() {
         // Mensaje de activación SOLO en pantalla: si se dijera en voz, el servicio
         // se oiría a sí mismo ("...di hola Erik...") y se activaría en falso.
         mostrar("Erik activado, Ariel. Di \"hola Erik\" o \"desactívate\".")
-        _binding?.buttonVoice?.text = "Desactivar Erik (escucha)"
     }
 
     private fun stopWakeService() {
         requireContext().stopService(Intent(requireContext(), WakeWordService::class.java))
         mostrar("Erik desactivado. Micrófono liberado, Ariel.")
-        _binding?.buttonVoice?.text = getString(R.string.voice)
     }
 
     /** Muestra un texto en pantalla SIN leerlo en voz alta. */
