@@ -186,9 +186,9 @@ class WakeWordService : Service() {
         activo = false
         try { recognizer?.cancel(); recognizer?.destroy() } catch (e: Exception) {}
         recognizer = null   // el micrófono queda libre de inmediato
-        // Avisa a la app para que apague el interruptor.
+        // Avisa a la app para que apague el interruptor y muestre el mensaje.
         sendBroadcast(Intent(ACTION_WAKE_OFF).setPackage(packageName))
-        tts?.speak("Micrófono liberado, Ariel. Toca el interruptor para volver a activarme.",
+        tts?.speak("Erik desactivado, Ariel. Micrófono liberado.",
             TextToSpeech.QUEUE_FLUSH, null, "off")
         main.postDelayed({ stopSelf() }, 3000)
     }

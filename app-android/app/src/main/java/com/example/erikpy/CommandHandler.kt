@@ -110,7 +110,7 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
         // Apagar la escucha permanente y liberar el micrófono para otras apps.
         if (patronDesactivarEscucha.containsMatchIn(cmdNorm)) {
             context.stopService(Intent(context, WakeWordService::class.java))
-            say("Escucha desactivada, Ariel. Micrófono liberado."); return
+            say("Erik desactivado, Ariel. Micrófono liberado."); return
         }
         // Encender la escucha permanente por voz.
         if (patronActivarEscucha.containsMatchIn(cmdNorm)) {

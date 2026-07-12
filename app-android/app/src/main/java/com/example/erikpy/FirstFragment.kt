@@ -150,7 +150,19 @@ class FirstFragment : Fragment() {
             }
         }
 
-        binding.buttonVoice.setOnClickListener { startVoiceInput() }
+        // El botón "Activar Erik" enciende la escucha continua (hasta decir "desactívate").
+        // Mensajes SOLO en pantalla: si se dijeran en voz, el servicio se oiría a sí mismo.
+        binding.buttonVoice.setOnClickListener {
+            if (hasPermission(Manifest.permission.RECORD_AUDIO) &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    hasPermission(Manifest.permission.POST_NOTIFICATIONS))
+            ) {
+                if (!binding.switchWake.isChecked) binding.switchWake.isChecked = true
+                else mostrar("Ya estoy escuchando, Ariel. Di \"hola Erik\" o \"desactívate\".")
+            } else {
+                enableWakeListening()   // pide permisos y arranca
+            }
+        }
 
         binding.buttonTranslator.setOnClickListener {
             startActivity(Intent(requireContext(), TranslatorActivity::class.java))
@@ -240,7 +252,10 @@ class FirstFragment : Fragment() {
     // Recibe el aviso del servicio cuando se desactiva por voz.
     private val wakeOffReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(c: android.content.Context?, i: android.content.Intent?) {
-            if (isAdded && _binding != null) binding.switchWake.isChecked = false
+            if (isAdded && _binding != null) {
+                binding.switchWake.isChecked = false
+                mostrar("Erik desactivado. Micrófono liberado, Ariel.")
+            }
         }
     }
 
