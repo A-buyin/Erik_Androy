@@ -116,10 +116,12 @@ class DocumentoActivity : AppCompatActivity() {
         }
         val prompt = """
 El siguiente es el texto (OCR) de un documento de despacho de contenedores.
+IMPORTANTE: básate SOLO en el texto impreso o mecanografiado. IGNORA por completo
+las anotaciones escritas a mano, los resaltados, los sellos y las notas añadidas.
 Extrae SOLO estos dos datos y devuélvelos EXACTAMENTE en dos líneas con este formato:
-Contenedor: <número de contenedor: 4 letras seguidas de 7 dígitos>
-Dirección: <dirección de entrega tras "DEL:": calle, ciudad, estado y código postal, sin el nombre de la empresa ni el teléfono>
-Si un dato no aparece, escribe "no encontrado". No añadas nada más.
+Contenedor: <número de contenedor impreso: 4 letras seguidas de 7 dígitos>
+Dirección: <dirección de entrega impresa tras "DEL:": calle, ciudad, estado y código postal, sin el nombre de la empresa ni el teléfono>
+Si un dato no aparece en el texto impreso, escribe "no encontrado". No añadas nada más.
 
 TEXTO:
 $texto
