@@ -48,6 +48,12 @@ class CommandHandler(
         RegexOption.IGNORE_CASE
     )
     private val patronUltimoMsj = Regex("\\bultim\\w*\\s+(?:mensaje|mensajes|sms)")
+    // Último mensaje DE un contacto: "mensaje de Hilda", "qué me envió Hilda", etc.
+    // Grupo 1 (tras de/del) o grupo 2 (tras me envió/escribió) = nombre del contacto.
+    private val patronMensajeDe = Regex(
+        "(?:mensaje|mensajes|texto|sms|escrito)\\s+(?:de|del|de\\s+la|dela)\\s+(.+)$" +
+        "|me\\s+(?:envio|escribio|mando|manda|envia|escribe|escribio)\\s+(.+)$"
+    )
     private val patronColgar = Regex("\\bcuelg\\w*\\b|\\bcolg\\w*\\b|\\bcort\\w*\\s+la\\s+llamad\\w*")
     private val patronOllama = Regex(
         "(?:pregunt\\w*|consult\\w*)\\s+a\\s+(?:o\\s*llama|ollama|olama|oyama|llama)\\b\\s*(.*)$"
@@ -66,6 +72,7 @@ Acciones disponibles y su formato EXACTO:
 - Llamar a un número:    [{"accion":"llamar","numero":"3001234567"}]
 - Colgar la llamada:     [{"accion":"colgar"}]
 - Leer el último SMS:    [{"accion":"leer_mensaje"}]
+- Leer el último SMS de un contacto: [{"accion":"leer_mensaje_de","contacto":"NOMBRE"}]
 
 Reglas del JSON:
 - Incluye el bloque SOLO si Ariel pide una de esas acciones. Si es una pregunta normal, responde sin JSON.
@@ -96,6 +103,15 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
         val cmdNorm = normalizar(command)
 
         if (patronColgar.containsMatchIn(cmdNorm)) { hangUpCall(); return }
+
+        // "¿qué mensaje me envió Hilda?" / "último mensaje de Hilda" -> SMS de ese contacto.
+        val mMsjDe = patronMensajeDe.find(cmdNorm)
+        if (mMsjDe != null) {
+            val nombre = mMsjDe.groupValues[1].ifEmpty { mMsjDe.groupValues[2] }
+                .trim().trim { it in ".,;:!?¿¡ " }
+            if (nombre.isNotEmpty()) { readLastSmsFrom(nombre); return }
+        }
+
         if (patronUltimoMsj.containsMatchIn(cmdNorm)) { readLastSms(); return }
 
         val mLlamada = patronLlamada.find(cmdLower)
@@ -206,6 +222,10 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
             }
             "colgar" -> hangUpCall()
             "leer_mensaje", "leer_sms", "ultimo_mensaje" -> readLastSms()
+            "leer_mensaje_de", "mensaje_de" -> {
+                val contacto = action.optString("contacto").trim()
+                if (contacto.isNotEmpty()) readLastSmsFrom(contacto) else readLastSms()
+            }
         }
     }
 
@@ -328,5 +348,40 @@ Trata la información de contactos con total confidencialidad. Solo ejecutas tar
             }
         }
         say("No hay mensajes en la bandeja de entrada, Ariel.")
+    }
+
+    /** Lee el último SMS recibido de un contacto concreto (por nombre). */
+    fun readLastSmsFrom(nombreBuscado: String) {
+        if (ContextCompat.checkSelfPermission(
+                context, Manifest.permission.READ_SMS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) { say("Sin permiso para leer mensajes, Ariel."); return }
+
+        val contacto = lookupContact(nombreBuscado)
+        if (contacto == null) {
+            say("No encontré a $nombreBuscado en tus contactos, Ariel."); return
+        }
+        // Compara por los últimos 7 dígitos (tolera prefijos de país y formato).
+        val digits = contacto.numero.filter { it.isDigit() }
+        val clave = if (digits.length >= 7) digits.takeLast(7) else digits
+        if (clave.isEmpty()) { say("El contacto no tiene un número válido, Ariel."); return }
+
+        val projection = arrayOf(Telephony.Sms.ADDRESS, Telephony.Sms.BODY)
+        context.contentResolver.query(
+            Telephony.Sms.Inbox.CONTENT_URI, projection, null, null,
+            "${Telephony.Sms.DATE} DESC"
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val addr = c.getString(0) ?: continue
+                val addrDigits = addr.filter { it.isDigit() }
+                val addrClave = if (addrDigits.length >= 7) addrDigits.takeLast(7) else addrDigits
+                if (addrClave == clave) {
+                    val body = c.getString(1) ?: ""
+                    say("El último mensaje de ${contacto.nombre} dice: $body")
+                    return
+                }
+            }
+        }
+        say("No encontré mensajes de ${contacto.nombre}, Ariel.")
     }
 }
