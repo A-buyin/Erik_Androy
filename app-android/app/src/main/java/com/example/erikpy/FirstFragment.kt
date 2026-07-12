@@ -129,6 +129,18 @@ class FirstFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Recupera el volumen por si una versión anterior dejó algún canal silenciado.
+        try {
+            val am = requireContext().getSystemService(android.media.AudioManager::class.java)
+            intArrayOf(
+                android.media.AudioManager.STREAM_MUSIC,
+                android.media.AudioManager.STREAM_SYSTEM,
+                android.media.AudioManager.STREAM_NOTIFICATION
+            ).forEach { s ->
+                try { am?.adjustStreamVolume(s, android.media.AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
+            }
+        } catch (e: Exception) {}
+
         tts = TextToSpeech(requireContext()) { status ->
             if (status == TextToSpeech.SUCCESS) tts?.language = Locale.forLanguageTag("es-ES")
         }
