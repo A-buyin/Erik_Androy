@@ -308,11 +308,18 @@ class FirstFragment : Fragment() {
     /** Diálogo con lista profesional (buscador + avatares); al tocar uno, llama. */
     private fun mostrarDialogoContactos(contactos: List<ContactosAdapter.Contacto>) {
         val vista = com.example.erikpy.databinding.DialogContactosBinding.inflate(layoutInflater)
-        val adapter = ContactosAdapter(contactos) { c ->
-            respond("Llamando a ${c.nombre}, Ariel.")   // se locuta con la voz elegida
-            llamarContacto(c.numero)
-            dialogoContactos?.dismiss()
-        }
+        val adapter = ContactosAdapter(
+            contactos,
+            onLlamar = { c ->
+                respond("Llamando a ${c.nombre}, Ariel.")   // se locuta con la voz elegida
+                llamarContacto(c.numero)
+                dialogoContactos?.dismiss()
+            },
+            onMensaje = { c ->
+                abrirMensajes(c.numero)
+                dialogoContactos?.dismiss()
+            }
+        )
         vista.recyclerContactos.layoutManager =
             androidx.recyclerview.widget.LinearLayoutManager(requireContext())
         vista.recyclerContactos.adapter = adapter
@@ -329,6 +336,15 @@ class FirstFragment : Fragment() {
             .setPositiveButton("Cerrar", null)
             .setOnDismissListener { dialogoContactos = null }
             .show()
+    }
+
+    /** Abre la app de mensajes en la conversación con ese número. */
+    private fun abrirMensajes(numero: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$numero")))
+        } catch (e: Exception) {
+            respond("No pude abrir los mensajes, Ariel.")
+        }
     }
 
     /** Realiza la llamada al número dado (igual que CommandHandler.placeCall). */

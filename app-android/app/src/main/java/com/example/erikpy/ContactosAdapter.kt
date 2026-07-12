@@ -13,7 +13,8 @@ import java.util.Locale
  *  e icono de llamar. Soporta filtrado por nombre o número. */
 class ContactosAdapter(
     private val todos: List<Contacto>,
-    private val onLlamar: (Contacto) -> Unit
+    private val onLlamar: (Contacto) -> Unit,
+    private val onMensaje: (Contacto) -> Unit
 ) : RecyclerView.Adapter<ContactosAdapter.VH>() {
 
     data class Contacto(val nombre: String, val numero: String)
@@ -47,6 +48,7 @@ class ContactosAdapter(
         holder.b.textAvatar.backgroundTintList = ColorStateList.valueOf(color)
         holder.b.root.setOnClickListener { onLlamar(c) }
         holder.b.buttonLlamar.setOnClickListener { onLlamar(c) }
+        holder.b.buttonMensaje.setOnClickListener { onMensaje(c) }
     }
 
     /** Filtra por nombre (sin acentos) o por dígitos del número. Devuelve cuántos quedan. */

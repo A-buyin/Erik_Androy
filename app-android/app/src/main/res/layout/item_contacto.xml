@@ -53,9 +53,19 @@
     </LinearLayout>
 
     <ImageButton
+        android:id="@+id/button_mensaje"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Mensaje"
+        android:src="@drawable/ic_message"
+        app:tint="?attr/colorPrimary" />
+
+    <ImageButton
         android:id="@+id/button_llamar"
         android:layout_width="44dp"
         android:layout_height="44dp"
+        android:layout_marginStart="4dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="Llamar"
         android:src="@drawable/ic_call"
