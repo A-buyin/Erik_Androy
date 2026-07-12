@@ -12,11 +12,10 @@
         android:orientation="vertical"
         android:padding="20dp">
 
-        <!-- Encabezado -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Traductor de voz"
+            android:text="Escáner de documentos"
             android:textColor="?attr/colorOnSurface"
             android:textSize="26sp"
             android:textStyle="bold" />
@@ -26,9 +25,25 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:alpha="0.7"
-            android:text="Traducción instantánea · sin internet"
+            android:text="Traduce el texto de una foto · sin internet"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
+
+        <!-- Botón: escanear documento con la cámara -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_doc_scan"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/btn_ocean"
+            android:text="Escanear documento y traducir"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="@null"
+            app:icon="@drawable/ic_camera"
+            app:iconGravity="textStart"
+            app:iconTint="@color/white" />
 
         <!-- Tarjeta de resultado -->
         <com.google.android.material.card.MaterialCardView
@@ -46,19 +61,18 @@
                 android:padding="20dp">
 
                 <TextView
-                    android:id="@+id/label_original"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:alpha="0.7"
                     android:letterSpacing="0.06"
-                    android:text="ORIGINAL"
+                    android:text="TEXTO DEL DOCUMENTO"
                     android:textAllCaps="true"
                     android:textColor="?attr/colorOnPrimaryContainer"
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/text_original"
+                    android:id="@+id/text_doc_original"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
@@ -67,7 +81,7 @@
                     android:textSize="18sp" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/button_leer_original"
+                    android:id="@+id/button_leer_doc_original"
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -88,7 +102,6 @@
                     android:background="?attr/colorOnPrimaryContainer" />
 
                 <TextView
-                    android:id="@+id/label_traduccion"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:alpha="0.7"
@@ -100,18 +113,18 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/text_traduccion"
+                    android:id="@+id/text_doc_traduccion"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:lineSpacingMultiplier="1.1"
                     android:text="—"
                     android:textColor="?attr/colorOnPrimaryContainer"
-                    android:textSize="26sp"
+                    android:textSize="22sp"
                     android:textStyle="bold" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/button_leer_traduccion"
+                    android:id="@+id/button_leer_doc_traduccion"
                     style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -126,84 +139,15 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Estado -->
         <TextView
-            android:id="@+id/text_estado"
+            android:id="@+id/text_doc_estado"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:gravity="center"
-            android:text="Preparando el traductor…"
-            android:textColor="?attr/colorOnSurface"
             android:alpha="0.75"
+            android:text="Preparando…"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="14sp" />
-
-        <!-- Modo conversación: un solo toque, alterna español/inglés automáticamente -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_conversacion"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/btn_ocean"
-            android:text="Modo conversación (automático)"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            app:backgroundTint="@null"
-            app:icon="@drawable/ic_mic"
-            app:iconGravity="textStart"
-            app:iconTint="@color/white" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:alpha="0.55"
-            android:gravity="center"
-            android:text="— o traduce una sola frase —"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="12sp" />
-
-        <!-- Botón 1: Español -> Inglés -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_es_en"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/btn_ocean"
-            android:text="Yo hablo   ·   Español → Inglés"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            app:backgroundTint="@null"
-            app:icon="@drawable/ic_mic"
-            app:iconGravity="textStart"
-            app:iconTint="@color/white" />
-
-        <!-- Botón 2: Inglés -> Español -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_en_es"
-            android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="12dp"
-            android:background="@drawable/btn_teal"
-            android:text="Ellos hablan   ·   Inglés → Español"
-            android:textColor="@color/white"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            app:backgroundTint="@null"
-            app:icon="@drawable/ic_mic"
-            app:iconGravity="textStart"
-            app:iconTint="@color/white" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:alpha="0.55"
-            android:gravity="center"
-            android:text="Toca y habla. Todo se lee en voz alta y funciona sin internet."
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="13sp" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

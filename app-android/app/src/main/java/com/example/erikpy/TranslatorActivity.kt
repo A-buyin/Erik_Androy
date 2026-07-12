@@ -11,18 +11,12 @@ import android.speech.tts.TextToSpeech
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.example.erikpy.databinding.ActivityTranslatorBinding
 import com.google.mlkit.common.model.DownloadConditions
-import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.io.File
 import java.util.Locale
 
 /**
@@ -56,22 +50,10 @@ class TranslatorActivity : AppCompatActivity() {
     private var turnoEspanol = true
     private val handlerConv = android.os.Handler(android.os.Looper.getMainLooper())
 
-    // OCR e identificación de idioma (offline).
-    private val ocr by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-    private val langId by lazy { LanguageIdentification.getClient() }
-    private var fotoUri: Uri? = null
-
     private val pedirMicrofono = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { concedido ->
         if (!concedido) estado("Necesito permiso de micrófono para traducir.")
-    }
-
-    private val tomarFoto = registerForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { ok ->
-        val uri = fotoUri
-        if (ok && uri != null) procesarDocumento(uri) else estado("Escaneo cancelado.")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -107,8 +89,6 @@ class TranslatorActivity : AppCompatActivity() {
         binding.buttonEnEs.setOnClickListener {
             escuchar("en-US", enEs, Locale.forLanguageTag("es-ES"))
         }
-        binding.buttonScan.setOnClickListener { escanearDocumento() }
-
         binding.buttonConversacion.setOnClickListener {
             if (conversando) detenerConversacion() else iniciarConversacion()
         }
@@ -229,55 +209,6 @@ class TranslatorActivity : AppCompatActivity() {
         }
     }
 
-    // --- Escaneo de documentos: cámara -> OCR -> traducir -> leer en voz alta ---
-
-    private fun escanearDocumento() {
-        if (!modelosListos) { estado("Aún preparando los idiomas…"); return }
-        try {
-            val f = File(cacheDir, "documento.jpg")
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
-            fotoUri = uri
-            estado("Enfoca el documento y toma la foto…")
-            tomarFoto.launch(uri)
-        } catch (e: Exception) {
-            estado("No pude abrir la cámara.")
-        }
-    }
-
-    private fun procesarDocumento(uri: Uri) {
-        estado("Leyendo el documento…")
-        try {
-            val imagen = InputImage.fromFilePath(this, uri)
-            ocr.process(imagen)
-                .addOnSuccessListener { visionText ->
-                    val texto = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
-                    if (texto.isBlank()) { estado("No detecté texto en la foto. Prueba con más luz."); return@addOnSuccessListener }
-                    binding.textOriginal.text = texto
-                    estado("Traduciendo…")
-                    // Detecta el idioma del documento y traduce al otro.
-                    langId.identifyLanguage(texto)
-                        .addOnSuccessListener { codigo ->
-                            if (codigo == "es") {
-                                traductorActual = esEn
-                                idiomaVozOrigen = Locale.forLanguageTag("es-ES"); idiomaVozDestino = Locale.ENGLISH
-                            } else {
-                                traductorActual = enEs
-                                idiomaVozOrigen = Locale.ENGLISH; idiomaVozDestino = Locale.forLanguageTag("es-ES")
-                            }
-                            traducir(texto)
-                        }
-                        .addOnFailureListener {
-                            traductorActual = enEs
-                            idiomaVozOrigen = Locale.ENGLISH; idiomaVozDestino = Locale.forLanguageTag("es-ES")
-                            traducir(texto)
-                        }
-                }
-                .addOnFailureListener { estado("No pude leer el documento.") }
-        } catch (e: Exception) {
-            estado("No pude abrir la foto.")
-        }
-    }
-
     /** Descarga (una sola vez) los modelos de idioma offline. */
     private fun descargarModelos() {
         estado("Descargando idiomas (~30 MB, una sola vez)…")
@@ -366,6 +297,5 @@ class TranslatorActivity : AppCompatActivity() {
         vozErik.liberar()
         tts?.stop(); tts?.shutdown(); tts = null
         esEn.close(); enEs.close()
-        ocr.close(); langId.close()
     }
 }

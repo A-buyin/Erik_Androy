@@ -93,6 +93,17 @@
                     app:iconGravity="textStart" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/button_documento"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Escáner de documentos (traducir foto)"
+                    app:cornerRadius="14dp"
+                    app:icon="@drawable/ic_camera"
+                    app:iconGravity="textStart" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/button_contacts"
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"

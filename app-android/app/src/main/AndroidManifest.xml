@@ -41,6 +41,12 @@
             android:label="Traductor de voz"
             android:theme="@style/Theme.Erikpy" />
 
+        <activity
+            android:name=".DocumentoActivity"
+            android:exported="false"
+            android:label="Escáner de documentos"
+            android:theme="@style/Theme.Erikpy" />
+
         <!-- Proveedor para pasar la foto del documento a la cámara/OCR. -->
         <provider
             android:name="androidx.core.content.FileProvider"

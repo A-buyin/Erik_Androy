@@ -156,6 +156,10 @@ class FirstFragment : Fragment() {
             startActivity(Intent(requireContext(), TranslatorActivity::class.java))
         }
 
+        binding.buttonDocumento.setOnClickListener {
+            startActivity(Intent(requireContext(), DocumentoActivity::class.java))
+        }
+
         binding.buttonContacts.setOnClickListener {
             if (hasPermission(Manifest.permission.READ_CONTACTS)) mostrarContactos()
             else requestContactsPermission.launch(Manifest.permission.READ_CONTACTS)
