@@ -43,9 +43,16 @@
 
         <activity
             android:name=".DocumentoActivity"
-            android:exported="false"
+            android:exported="true"
             android:label="Escáner de documentos"
-            android:theme="@style/Theme.Erikpy" />
+            android:theme="@style/Theme.Erikpy">
+            <!-- Permite "Compartir con Erik" una foto (de Mensajes, galería, WhatsApp…). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
 
         <!-- Proveedor para pasar la foto del documento a la cámara/OCR. -->
         <provider

@@ -1,5 +1,6 @@
 package com.example.erikpy
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
@@ -7,6 +8,7 @@ import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.content.IntentCompat
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -66,6 +68,9 @@ class DocumentoActivity : AppCompatActivity() {
     // Número de contenedor ISO: 4 letras + 7 dígitos (p.ej. EITU1814854).
     private val reContenedor = Regex("\\b([A-Z]{4})\\s?(\\d{7})\\b")
 
+    // true si la imagen llegó por "Compartir con Erik": tras el OCR, extrae datos solo.
+    private var autoExtraer = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityDocumentoBinding.inflate(layoutInflater)
@@ -93,6 +98,14 @@ class DocumentoActivity : AppCompatActivity() {
         binding.buttonLeerDocTraduccion.setOnClickListener { leer(binding.textDocTraduccion.text, idiomaVozDestino) }
         binding.buttonDocExtraer.setOnClickListener { extraerDatos() }
         binding.buttonLeerDocDatos.setOnClickListener { leer(binding.textDocDatos.text, Locale.forLanguageTag("es-ES")) }
+
+        // Si Erik se abrió por "Compartir" una imagen (de Mensajes, galería, WhatsApp…),
+        // procesa esa foto y extrae los datos automáticamente.
+        if (intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("image/") == true) {
+            val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            if (uri != null) { autoExtraer = true; procesarDocumento(uri) }
+            else estado("No recibí la imagen compartida, Ariel.")
+        }
     }
 
     /** Extrae del documento de despacho el NÚMERO DE CONTENEDOR y la DIRECCIÓN de entrega. */
@@ -225,6 +238,8 @@ $texto
                     val texto = visionText.text.replace("\n", " ").replace(Regex("\\s+"), " ").trim()
                     if (texto.isBlank()) { estado("No detecté texto en la foto. Prueba con más luz."); return@addOnSuccessListener }
                     binding.textDocOriginal.text = texto
+                    // Foto compartida: extrae contenedor + dirección directamente (sin traducir).
+                    if (autoExtraer) { autoExtraer = false; extraerDatos(); return@addOnSuccessListener }
                     estado("Traduciendo…")
                     langId.identifyLanguage(texto)
                         .addOnSuccessListener { codigo ->
