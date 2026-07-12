@@ -190,15 +190,19 @@ class TranslatorActivity : AppCompatActivity() {
         handlerConv.postDelayed({ if (conversando) escucharTurno() }, 400)
     }
 
-    /** Habla la traducción (voz rápida de Android) y, al terminar, pasa el turno. */
+    /** Habla la traducción con la VOZ ELEGIDA (servidor /tts) y, al terminar, pasa el
+     *  turno. Si el servidor falla, usa el TTS de Android y encadena igual el turno. */
     private fun hablarYContinuar(texto: String, idioma: Locale) {
-        tts?.language = idioma
-        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onError(utteranceId: String?) { siguienteTurno() }
-            override fun onDone(utteranceId: String?) { siguienteTurno() }
-        })
-        tts?.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "conv")
+        val codigo = if (idioma.language == "en") "en" else "es"
+        vozErik.hablar(texto, codigo, { siguienteTurno() }) { txt, alTerminar ->
+            tts?.language = idioma
+            tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(utteranceId: String?) {}
+                override fun onError(utteranceId: String?) { alTerminar?.invoke() }
+                override fun onDone(utteranceId: String?) { alTerminar?.invoke() }
+            })
+            tts?.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "conv")
+        }
     }
 
     private fun siguienteTurno() {
