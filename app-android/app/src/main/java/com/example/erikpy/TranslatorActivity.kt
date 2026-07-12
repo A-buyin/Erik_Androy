@@ -51,6 +51,11 @@ class TranslatorActivity : AppCompatActivity() {
     private var idiomaVozOrigen: Locale = Locale.forLanguageTag("es-ES")
     private var idiomaOrigenStt: String = "es-ES"
 
+    // Modo conversación: alterna español/inglés automáticamente, sin botones.
+    private var conversando = false
+    private var turnoEspanol = true
+    private val handlerConv = android.os.Handler(android.os.Looper.getMainLooper())
+
     // OCR e identificación de idioma (offline).
     private val ocr by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
     private val langId by lazy { LanguageIdentification.getClient() }
@@ -104,6 +109,10 @@ class TranslatorActivity : AppCompatActivity() {
         }
         binding.buttonScan.setOnClickListener { escanearDocumento() }
 
+        binding.buttonConversacion.setOnClickListener {
+            if (conversando) detenerConversacion() else iniciarConversacion()
+        }
+
         binding.buttonLeerOriginal.setOnClickListener { leer(binding.textOriginal.text, idiomaVozOrigen) }
         binding.buttonLeerTraduccion.setOnClickListener { leer(binding.textTraduccion.text, idiomaVozDestino) }
     }
@@ -116,6 +125,107 @@ class TranslatorActivity : AppCompatActivity() {
         vozErik.hablar(t, codigo, null) { txt, _ ->
             tts?.language = idioma
             tts?.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "leer")
+        }
+    }
+
+    // --- Modo conversación: interpretación continua que alterna ES <-> EN ---
+
+    private fun iniciarConversacion() {
+        if (!modelosListos) { estado("Aún preparando los idiomas…"); return }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) { pedirMicrofono.launch(Manifest.permission.RECORD_AUDIO); return }
+        conversando = true
+        turnoEspanol = true
+        binding.buttonConversacion.text = "⏹️ Detener conversación"
+        escucharTurno()
+    }
+
+    private fun detenerConversacion() {
+        conversando = false
+        handlerConv.removeCallbacksAndMessages(null)
+        recognizer?.destroy(); recognizer = null
+        tts?.stop()
+        binding.buttonConversacion.text = "Modo conversación (automático)"
+        estado("Conversación terminada.")
+    }
+
+    /** Escucha el turno actual (ES o EN); al reconocer, traduce y habla el resultado. */
+    private fun escucharTurno() {
+        if (!conversando) return
+        val idiomaStt: String
+        val traductor: Translator
+        val vozDestino: Locale
+        if (turnoEspanol) {
+            idiomaStt = "es-ES"; traductor = esEn; vozDestino = Locale.ENGLISH
+            idiomaVozOrigen = Locale.forLanguageTag("es-ES")
+        } else {
+            idiomaStt = "en-US"; traductor = enEs; vozDestino = Locale.forLanguageTag("es-ES")
+            idiomaVozOrigen = Locale.ENGLISH
+        }
+        traductorActual = traductor
+        idiomaVozDestino = vozDestino
+        binding.textOriginal.text = "…"; binding.textTraduccion.text = "…"
+        estado(if (turnoEspanol) "🎙️ Habla en ESPAÑOL…" else "🎙️ Speak in ENGLISH…")
+
+        recognizer?.destroy()
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(oyenteConversacion)
+            startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, idiomaStt)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            })
+        }
+    }
+
+    private val oyenteConversacion = object : android.speech.RecognitionListener {
+        override fun onResults(results: Bundle?) {
+            val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                ?.firstOrNull()?.trim().orEmpty()
+            if (texto.isBlank()) { reintentarTurno(); return }
+            binding.textOriginal.text = texto
+            estado("Traduciendo…")
+            val traductor = traductorActual ?: return
+            traductor.translate(texto)
+                .addOnSuccessListener { traducido ->
+                    binding.textTraduccion.text = traducido
+                    hablarYContinuar(traducido, idiomaVozDestino)
+                }
+                .addOnFailureListener { reintentarTurno() }
+        }
+        override fun onError(error: Int) { reintentarTurno() }
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onPartialResults(partialResults: Bundle?) {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    /** Reintenta escuchar el MISMO turno (p.ej. si nadie habló), con una breve pausa. */
+    private fun reintentarTurno() {
+        if (!conversando) return
+        handlerConv.postDelayed({ if (conversando) escucharTurno() }, 400)
+    }
+
+    /** Habla la traducción (voz rápida de Android) y, al terminar, pasa el turno. */
+    private fun hablarYContinuar(texto: String, idioma: Locale) {
+        tts?.language = idioma
+        tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onError(utteranceId: String?) { siguienteTurno() }
+            override fun onDone(utteranceId: String?) { siguienteTurno() }
+        })
+        tts?.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "conv")
+    }
+
+    private fun siguienteTurno() {
+        runOnUiThread {
+            if (!conversando) return@runOnUiThread
+            turnoEspanol = !turnoEspanol
+            escucharTurno()
         }
     }
 
@@ -250,6 +360,8 @@ class TranslatorActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        conversando = false
+        handlerConv.removeCallbacksAndMessages(null)
         recognizer?.destroy(); recognizer = null
         vozErik.liberar()
         tts?.stop(); tts?.shutdown(); tts = null

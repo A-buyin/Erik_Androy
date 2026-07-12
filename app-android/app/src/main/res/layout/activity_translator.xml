@@ -138,6 +138,32 @@
             android:alpha="0.75"
             android:textSize="14sp" />
 
+        <!-- Modo conversación: un solo toque, alterna español/inglés automáticamente -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_conversacion"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/btn_ocean"
+            android:text="Modo conversación (automático)"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:backgroundTint="@null"
+            app:icon="@drawable/ic_mic"
+            app:iconGravity="textStart"
+            app:iconTint="@color/white" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:alpha="0.55"
+            android:gravity="center"
+            android:text="— o traduce una sola frase —"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="12sp" />
+
         <!-- Botón 1: Español -> Inglés -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/button_es_en"
